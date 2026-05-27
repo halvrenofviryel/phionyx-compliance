@@ -1,0 +1,125 @@
+# EU AI Act Article 13 — RGE envelope chain mapping.
+# Consumed by W1.3 chain-walker to populate the schema.json inputs.
+#
+# CATEGORY rules:
+#   operator_supplied:  value comes from --input flags or operator config;
+#                       template renders placeholder if not provided.
+#   chain_derived:      value computed by walking the envelope chain.
+#   derived:            value computed from already-derived values.
+#   canonical:          value is a constant from the phionyx_compliance package.
+
+template_version: "1.0.0"
+framework: "EU AI Act, Article 13 (transparency)"
+
+inputs:
+
+  # ── operator-supplied ─────────────────────────────────────────────
+  provider_name:
+    category: operator_supplied
+    placeholder: "[OPERATOR: insert provider legal name]"
+
+  system_identifier:
+    category: operator_supplied
+    placeholder: "[OPERATOR: insert system identifier]"
+
+  intended_purpose:
+    category: operator_supplied
+    placeholder: "[OPERATOR: describe declared intended purpose per Article 13(1)]"
+
+  declared_limitations:
+    category: operator_supplied
+    placeholder: "[OPERATOR: describe declared limitations and foreseeable misuse]"
+
+  out_of_scope_uses:
+    category: operator_supplied
+    placeholder: "[OPERATOR: list explicitly out-of-scope use cases]"
+
+  key_storage_location:
+    category: operator_supplied
+    placeholder: "~/.phionyx/keys/"
+
+  key_storage_mode:
+    category: operator_supplied
+    placeholder: "0600 (private) / 0644 (public), local filesystem"
+
+  worm_storage_status:
+    category: operator_supplied
+    placeholder: "not configured (development default)"
+
+  anomaly_followup_instruction:
+    category: operator_supplied
+    placeholder: "[OPERATOR: state how anomaly-flagged envelopes are triaged and resolved]"
+
+  # ── chain-derived ──────────────────────────────────────────────────
+  trace_id:        { category: chain_derived, source: "chain.trace_id" }
+  window_start_iso: { category: chain_derived, source: "chain.envelopes[0].timestamp_utc" }
+  window_end_iso:   { category: chain_derived, source: "chain.envelopes[-1].timestamp_utc" }
+  envelope_count:   { category: chain_derived, source: "chain.envelope_count" }
+  chain_valid:      { category: chain_derived, source: "chain.verify_result.valid" }
+
+  tool_call_count:
+    category: chain_derived
+    source: chain.envelopes
+    filter: { schema_id: "phionyx.governed_response_envelope.v0.2" }
+    aggregator: count
+
+  claim_count:
+    category: chain_derived
+    source: chain.envelopes
+    filter: { "subject.kind": "agent_self_claim" }
+    aggregator: count
+
+  verdict_distribution:
+    category: chain_derived
+    source: chain.envelopes
+    aggregator: count_by_field
+    field: subject.decision
+
+  distinct_descriptor_count:
+    category: chain_derived
+    source: chain.envelopes
+    aggregator: distinct
+    field: subject.tool_descriptor_hash
+
+  descriptor_change_count:
+    category: chain_derived
+    source: chain.envelopes
+    filter: { "subject.descriptor_change_detected": true }
+    aggregator: count
+
+  anomaly_count:
+    category: chain_derived
+    source: chain.envelopes
+    filter: { "subject.anomaly_flag": true }
+    aggregator: count
+
+  signing_key_id:
+    category: chain_derived
+    source: chain.envelopes
+    aggregator: first_or_varies
+    field: integrity.key_id
+
+  key_rotation_event_count:
+    category: chain_derived
+    source: chain.envelopes
+    filter: { schema_id: "phionyx.key_rotation_envelope.v1" }
+    aggregator: count
+
+  key_revocation_referenced_count:
+    category: chain_derived
+    source: chain.revoked_keys_referenced
+    aggregator: count
+
+  # ── derived (from already-computed values) ─────────────────────────
+  chain_valid_label:          { category: derived, function: render_chain_valid_label }
+  verification_command:        { category: derived, function: render_verification_command }
+  verdict_distribution_table:  { category: derived, function: render_verdict_distribution_table }
+  chain_integrity_summary:     { category: derived, function: render_chain_integrity_summary }
+  human_oversight_summary:     { category: derived, function: render_human_oversight_summary }
+  generated_at_iso:            { category: derived, function: render_generated_at_iso }
+  template_version:            { category: derived, source: template_metadata.template_version }
+  reproduction_command:        { category: derived, function: render_reproduction_command }
+
+  # ── canonical (constants) ──────────────────────────────────────────
+  disclaimer_head: { category: canonical, source: "phionyx_compliance.CANONICAL_DISCLAIMER_HEAD" }
+  disclaimer_tail: { category: canonical, source: "phionyx_compliance.CANONICAL_DISCLAIMER_TAIL" }

@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "phionyx-compliance"
+version = "0.1.0a1.dev0"
+description = "Phionyx compliance evidence report draft generator — Article-13-oriented and other governance-framework mappings from RGE v0.2 audit chains."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "AGPL-3.0-or-later"
+authors = [{ name = "Ali Toygar Abak", email = "phionyx@halvrenofviryel.com" }]
+keywords = ["phionyx", "compliance", "evidence", "AI governance", "audit", "EU AI Act", "NIST AI RMF", "ISO 42001"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Legal Industry",
+  "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+  "phionyx-core>=0.6.0",
+  "pydantic>=2.0",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-cov>=4.0"]
+
+[project.urls]
+Homepage = "https://phionyx.ai"
+Repository = "https://github.com/halvrenofviryel/phionyx-compliance"
+Documentation = "https://phionyx.ai/standard"
+Issues = "https://github.com/halvrenofviryel/phionyx-compliance/issues"
+
+[project.scripts]
+phionyx-compliance = "phionyx_compliance.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/phionyx_compliance"]

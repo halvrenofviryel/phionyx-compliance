@@ -1,0 +1,90 @@
+# OWASP Agentic AI Threats v1.0 — RGE envelope chain mapping.
+
+template_version: "1.0.0"
+framework: "OWASP Agentic AI Threats v1.0 (coverage)"
+
+inputs:
+
+  # ── operator-supplied ─────────────────────────────────────────────
+  provider_name:                  { category: operator_supplied, placeholder: "[OPERATOR: insert provider legal name]" }
+  system_identifier:              { category: operator_supplied, placeholder: "[OPERATOR: insert system identifier]" }
+  agent_topology:                 { category: operator_supplied, placeholder: "[OPERATOR: single-agent / multi-agent / supervisor / ...]" }
+  descriptor_approval_workflow:   { category: operator_supplied, placeholder: "[OPERATOR: T2 — descriptor approval workflow]" }
+  capability_profile_policy:      { category: operator_supplied, placeholder: "[OPERATOR: T3 — capability profile policy summary]" }
+  hitl_invocation_policy:         { category: operator_supplied, placeholder: "[OPERATOR: T10 — HITL invocation policy]" }
+  rate_limit_controls:            { category: operator_supplied, placeholder: "[OPERATOR: T4 — rate-limiting + resource controls]" }
+  anomaly_followup_instruction:   { category: operator_supplied, placeholder: "[OPERATOR: anomaly triage / followup procedure]" }
+
+  # ── chain-derived ──────────────────────────────────────────────────
+  trace_id:        { category: chain_derived, source: "chain.trace_id" }
+  window_start_iso: { category: chain_derived, source: "chain.envelopes[0].timestamp_utc" }
+  window_end_iso:   { category: chain_derived, source: "chain.envelopes[-1].timestamp_utc" }
+  envelope_count:   { category: chain_derived, source: "chain.envelope_count" }
+  chain_valid:      { category: chain_derived, source: "chain.verify_result.valid" }
+
+  tool_call_count:
+    category: chain_derived
+    source: chain.envelopes
+    filter: { schema_id: "phionyx.governed_response_envelope.v0.2" }
+    aggregator: count
+
+  claim_count:
+    category: chain_derived
+    source: chain.envelopes
+    filter: { "subject.kind": "agent_self_claim" }
+    aggregator: count
+
+  verdict_distribution:
+    category: chain_derived
+    source: chain.envelopes
+    aggregator: count_by_field
+    field: subject.decision
+
+  distinct_descriptor_count:
+    category: chain_derived
+    source: chain.envelopes
+    aggregator: distinct
+    field: subject.tool_descriptor_hash
+
+  descriptor_change_count:
+    category: chain_derived
+    source: chain.envelopes
+    filter: { "subject.descriptor_change_detected": true }
+    aggregator: count
+
+  anomaly_count:
+    category: chain_derived
+    source: chain.envelopes
+    filter: { "subject.anomaly_flag": true }
+    aggregator: count
+
+  signing_key_id:
+    category: chain_derived
+    source: chain.envelopes
+    aggregator: first_or_varies
+    field: integrity.key_id
+
+  # ── derived (renderer helpers) ─────────────────────────────────────
+  chain_valid_label:          { category: derived, function: render_chain_valid_label }
+  verdict_distribution_table: { category: derived, function: render_verdict_distribution_table }
+  chain_integrity_summary:    { category: derived, function: render_chain_integrity_summary }
+  human_oversight_summary:    { category: derived, function: render_human_oversight_summary }
+  generated_at_iso:           { category: derived, function: render_generated_at_iso }
+  template_version:           { category: derived, source: template_metadata.template_version }
+  reproduction_command:       { category: derived, function: render_reproduction_command }
+
+  # ── derived (threat coverage statuses — computed by sample_inputs/renderer) ──
+  t1_memory_status:           { category: derived, function: render_t1_memory_status }
+  t2_tool_misuse_status:      { category: derived, function: render_t2_tool_misuse_status }
+  t3_privilege_status:        { category: derived, function: render_t3_privilege_status }
+  t4_resource_status:         { category: derived, function: render_t4_resource_status }
+  t5_cascading_status:        { category: derived, function: render_t5_cascading_status }
+  t6_intent_breaking_status:  { category: derived, function: render_t6_intent_breaking_status }
+  t7_misaligned_status:       { category: derived, function: render_t7_misaligned_status }
+  t8_repudiation_status:      { category: derived, function: render_t8_repudiation_status }
+  t9_spoofing_status:         { category: derived, function: render_t9_spoofing_status }
+  t10_hitl_status:            { category: derived, function: render_t10_hitl_status }
+
+  # ── canonical ──────────────────────────────────────────────────────
+  disclaimer_head: { category: canonical, source: "phionyx_compliance.CANONICAL_DISCLAIMER_HEAD" }
+  disclaimer_tail: { category: canonical, source: "phionyx_compliance.CANONICAL_DISCLAIMER_TAIL" }
