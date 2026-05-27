@@ -44,6 +44,26 @@ The runtime evidence chain recorded **{{tool_call_count}}** tool calls and **{{c
 
 > *A non-zero `descriptor_change_count` means a tool's published descriptor changed mid-window. Auditor should review whether the changes were operator-approved or require re-approval per the project's Capability Profile policy.*
 
+### 3.3 Knowledge sources and retrieval evidence (Article 13(3)(c) — input data)
+
+For systems that consult external knowledge at inference time (RAG, tool descriptors, memory blocks, retrieved documents), RGE v0.2 surfaces two evidence blocks: `reasoning.knowledge_sources_consulted` (typed list of source kinds) and `retrieval.corpus` / `retrieval.documents` (per-corpus, per-document detail). Aggregate behaviour over the assessment window:
+
+**Knowledge sources consulted (typed):**
+
+{{knowledge_sources_summary_table}}
+
+**Retrieval activity:**
+
+| Metric | Value |
+|---|---|
+| Envelopes with `retrieval.documents` populated | {{retrieval_event_count}} |
+
+**Retrieval corpora observed:**
+
+{{retrieval_corpus_summary_table}}
+
+> *Article 13(3)(c) requires the provider to disclose the input data on which the system operates. The runtime evidence chain populates this disclosure at the per-turn granularity: each envelope records the source types the producer publicly declared having consulted (`reasoning.knowledge_sources_consulted[]`) and, for any retrieval event, the corpus identifiers and document references (`retrieval.corpus`, `retrieval.documents[]`). An auditor reads this section to confirm: (i) the typed sources consulted match the declared intended-purpose data scope; (ii) any retrieval corpora observed are documented in the operator's data-governance package; (iii) windows that show empty knowledge-source / retrieval evidence are explainable (the producer did not surface these blocks, or no RAG activity occurred in the window).*
+
 ## 4. Audit trail (Article 13(2), cross-referenced to Article 12)
 
 The audit trail is the per-turn signed envelope chain. Properties:

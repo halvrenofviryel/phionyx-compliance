@@ -102,6 +102,25 @@ def sample_inputs(template_name: str) -> dict[str, Any]:
         "reproduction_command": f"phionyx-compliance generate --trace trace-e2dd588aaf4d4c97 --template {t.name}",
         "disclaimer_head": CANONICAL_DISCLAIMER_HEAD,
         "disclaimer_tail": CANONICAL_DISCLAIMER_TAIL + "\n\n" + t.disclaimer_addendum,
+        # F4 + F8 (v0.7.0 W2) — sample synthetic surfaces. Real chain
+        # rendering replaces these via the derived-dispatch in mapping.py;
+        # sample mode pre-fills so the standalone renderer test passes.
+        "knowledge_sources_summary_table": (
+            "| Source type | Count |\n"
+            "|---|---:|\n"
+            "| `retrieval_corpus` | 18 |\n"
+            "| `tool_descriptor_clause` | 7 |\n"
+            "| `static_doc` | 3 |\n"
+            "\n"
+            "*28 of 155 envelopes surfaced `reasoning.knowledge_sources_consulted` in this window.*"
+        ),
+        "retrieval_corpus_summary_table": (
+            "| Corpus name | Version | Language |\n"
+            "|---|---|---|\n"
+            "| `eur-lex-ai-act-2024-1689` | `2026-05-07-digital-omnibus-merge` | `en` |\n"
+            "| `internal-policy-corpus` | `2026-05-20` | `en` |"
+        ),
+        "retrieval_event_count": "18",
     }
 
     if template_name == "eu-ai-act-article-13":
@@ -324,6 +343,97 @@ def render_t10_hitl_status(hitl_count: int = 0, **kwargs) -> str:
     return f"**Chain-derived.** {hitl_count} HITL invocations recorded; operator's HITL-invocation policy resolves whether this volume is normal."
 
 
+# ── F4 + F8 — knowledge sources and retrieval evidence (v0.7.0 W2) ──
+
+def render_knowledge_sources_summary_table(chain=None, **kwargs) -> str:
+    """Tally `reasoning.knowledge_sources_consulted` across the chain.
+
+    Counts source_type values from each envelope's reasoning block when
+    the producer populated it. Returns a markdown table grouped by
+    source_type, with a footnote stating how many envelopes contributed.
+    Returns a graceful empty-state line when no envelope populated the
+    field — this is the expected reading for windows produced before
+    F4 emission was enabled core-side.
+    """
+    if chain is None or not chain.envelopes:
+        return "_No envelopes in the assessment window._"
+    counts: dict[str, int] = {}
+    envelopes_with_sources = 0
+    for env in chain.envelopes:
+        sources = (env.get("reasoning") or {}).get("knowledge_sources_consulted") or []
+        if sources:
+            envelopes_with_sources += 1
+            for src in sources:
+                if isinstance(src, dict):
+                    # Schema field is `kind` (one of retrieval_corpus / memory_block /
+                    # tool_output / tool_descriptor_clause / static_doc / system_prompt /
+                    # external_api). Per `rge_v0_2.schema.json` $defs.reasoning.
+                    t = str(src.get("kind") or "unknown")
+                    counts[t] = counts.get(t, 0) + 1
+    if not counts:
+        return (
+            "_No `reasoning.knowledge_sources_consulted` populated in this window — "
+            "either the producer is pre-v0.7.0, or the producer surfaced no "
+            "knowledge sources in this assessment window._"
+        )
+    lines = ["| Source type | Count |", "|---|---:|"]
+    for t, c in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
+        lines.append(f"| `{t}` | {c} |")
+    lines.append("")
+    lines.append(
+        f"*{envelopes_with_sources} of {chain.envelope_count} envelopes surfaced "
+        f"`reasoning.knowledge_sources_consulted` in this window.*"
+    )
+    return "\n".join(lines)
+
+
+def render_retrieval_corpus_summary_table(chain=None, **kwargs) -> str:
+    """List distinct `retrieval.corpus` values observed in the chain.
+
+    A producer that uses RAG populates retrieval.corpus with
+    {name, version, language}. We surface the distinct (name, version,
+    language) triples observed across the window so the auditor can
+    confirm which corpora the system actually queried.
+    """
+    if chain is None or not chain.envelopes:
+        return "_No envelopes in the assessment window._"
+    seen: set[tuple] = set()
+    corpora: list[dict] = []
+    for env in chain.envelopes:
+        c = (env.get("retrieval") or {}).get("corpus")
+        if isinstance(c, dict) and c:
+            key = (c.get("name"), c.get("version"), c.get("language"))
+            if key not in seen:
+                seen.add(key)
+                corpora.append(c)
+    if not corpora:
+        return (
+            "_No `retrieval.corpus` populated in this window — either no RAG "
+            "events occurred, or the producer has not flipped its retrieval "
+            "block from `reserved-for-v0.4.1-f8` to `active`._"
+        )
+    lines = ["| Corpus name | Version | Language |", "|---|---|---|"]
+    for c in corpora:
+        lines.append(
+            f"| `{c.get('name', '') or '(unnamed)'}` "
+            f"| `{c.get('version', '') or '—'}` "
+            f"| `{c.get('language', '') or '—'}` |"
+        )
+    return "\n".join(lines)
+
+
+def render_retrieval_event_count(chain=None, **kwargs) -> str:
+    """Count envelopes whose retrieval.documents array is non-empty."""
+    if chain is None or not chain.envelopes:
+        return "0"
+    n = sum(
+        1
+        for e in chain.envelopes
+        if ((e.get("retrieval") or {}).get("documents") or [])
+    )
+    return str(n)
+
+
 __all__ = [
     "render",
     "sample_inputs",
@@ -344,4 +454,7 @@ __all__ = [
     "render_t8_repudiation_status",
     "render_t9_spoofing_status",
     "render_t10_hitl_status",
+    "render_knowledge_sources_summary_table",
+    "render_retrieval_corpus_summary_table",
+    "render_retrieval_event_count",
 ]

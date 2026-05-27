@@ -120,6 +120,13 @@ inputs:
   template_version:            { category: derived, source: template_metadata.template_version }
   reproduction_command:        { category: derived, function: render_reproduction_command }
 
+  # F4 + F8 — v0.7.0 W2 acceptance: surface reasoning + retrieval evidence
+  # from RGE v0.2 envelopes when populated. Renders graceful empty-state
+  # text when the window contains pre-v0.7.0 envelopes or no RAG activity.
+  knowledge_sources_summary_table: { category: derived, function: render_knowledge_sources_summary_table }
+  retrieval_corpus_summary_table:  { category: derived, function: render_retrieval_corpus_summary_table }
+  retrieval_event_count:           { category: derived, function: render_retrieval_event_count }
+
   # ── canonical (constants) ──────────────────────────────────────────
   disclaimer_head: { category: canonical, source: "phionyx_compliance.CANONICAL_DISCLAIMER_HEAD" }
   disclaimer_tail: { category: canonical, source: "phionyx_compliance.CANONICAL_DISCLAIMER_TAIL" }

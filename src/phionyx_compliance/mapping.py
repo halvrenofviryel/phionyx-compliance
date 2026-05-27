@@ -20,7 +20,10 @@ from .renderer import (
     render_chain_valid_label,
     render_generated_at_iso,
     render_human_oversight_summary,
+    render_knowledge_sources_summary_table,
     render_reproduction_command,
+    render_retrieval_corpus_summary_table,
+    render_retrieval_event_count,
     render_verdict_distribution_table,
     render_verification_command,
 )
@@ -169,6 +172,12 @@ def _resolve_derived_rule(
         return render_generated_at_iso()
     if function == "render_reproduction_command":
         return render_reproduction_command(chain.trace_id, template.name)
+    if function == "render_knowledge_sources_summary_table":
+        return render_knowledge_sources_summary_table(chain=chain)
+    if function == "render_retrieval_corpus_summary_table":
+        return render_retrieval_corpus_summary_table(chain=chain)
+    if function == "render_retrieval_event_count":
+        return render_retrieval_event_count(chain=chain)
 
     if source == "template_metadata.template_version":
         return template.version
