@@ -72,7 +72,7 @@ summary (`--format=json`).
 Phionyx ships three distinct things, each with its own version line — this
 package is a downstream **adapter** that consumes their output:
 
-- **`phionyx-core`** (the SDK / deterministic-cognition engine, latest **v0.7.2**)
+- **`phionyx-core`** (the SDK / deterministic engine, latest **v0.7.2**)
   — produces the signed audit chain this package reads. It is the reference
   implementation scoring **L3 + D3** on the Evaluation Standard. It is **not**
   claim-governance-rated.
