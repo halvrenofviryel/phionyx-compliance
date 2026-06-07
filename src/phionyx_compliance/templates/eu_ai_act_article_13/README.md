@@ -2,7 +2,7 @@
 
 > **Framework:** EU AI Act, Article 13 (transparency)
 > **Template version:** `1.0.0` (initial, 2026-05-26)
-> **Status:** alpha — first framework template, lands at v0.7.0 W1.2.
+> **Status:** alpha — first framework template; shipped.
 
 ## What this template produces
 
@@ -29,7 +29,7 @@ A markdown draft report structured against Article 13 transparency obligations. 
 
 - Does NOT produce certification or compliance attestation — drafts only.
 - Does NOT cover Article 13(1)(a) "characteristics and capabilities" (operator documentation).
-- Does NOT cover accuracy/precision metrics beyond gate-verdict distribution — see `examples/benchmark/` (L8).
+- Does NOT cover accuracy/precision metrics beyond gate-verdict distribution.
 - Does NOT cover training-data information (Article 10 scope).
 - Does NOT track Digital Omnibus deferrals — operator verifies current applicability.
 

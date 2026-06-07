@@ -1,7 +1,7 @@
 # phionyx-compliance
 
 > **Evidence-grade compliance report drafts from Phionyx RGE v0.2 audit chains.**
-> AGPL-3.0 · Python 3.10+ · v0.1.1 (alpha) on PyPI
+> AGPL-3.0 · Python 3.10+ · v0.1.0a1 (alpha) on PyPI
 
 `phionyx-compliance` turns a signed envelope chain produced by `phionyx-core`,
 `phionyx-mcp-server`, or any other Phionyx component into a framework-shaped
@@ -14,7 +14,9 @@ auditor must review before any use that implies legal posture.
 **Where this sits in the stack:** `phionyx-compliance` is a **reporting adapter**.
 It is one of several adapters that consume Phionyx envelope chains; it is not the
 deterministic engine (`phionyx-core`, the SDK), the self-governance gate
-(`phionyx-pipeline-mcp`), or the Evaluation Standard. See
+(`phionyx-pipeline-mcp`), or the evidence-record format
+([AIREP](https://github.com/halvrenofviryel/ai-runtime-evidence-protocol)) the
+chain conforms to. See
 [Composition with the Phionyx stack](#composition-with-the-phionyx-stack) below.
 
 ---
@@ -42,7 +44,7 @@ What it does:
 
 ## Supported templates
 
-All four framework templates ship in v0.1.1:
+All four framework templates ship in v0.1.0a1:
 
 | Template | Framework | Status |
 |---|---|---|
@@ -69,31 +71,33 @@ modify chain state, does not re-sign anything, and does not produce envelopes
 of its own. The output is a markdown file plus an optional JSON-formatted
 summary (`--format=json`).
 
-Phionyx ships three distinct things, each with its own version line — this
+Phionyx ships several distinct components, each with its own version line — this
 package is a downstream **adapter** that consumes their output:
 
-- **`phionyx-core`** (the SDK / deterministic engine, latest **v0.7.2**)
-  — produces the signed audit chain this package reads. It is the reference
-  implementation scoring **L3 + D3** on the Evaluation Standard. It is **not**
-  claim-governance-rated.
-- **`phionyx-pipeline-mcp`** (the self-claim gate, stable **v0.2.0** / alpha
-  **v0.3.0a1**) — its self-claim gate envelopes feed the *"agent's own
-  attestations"* section of every framework template. This is the component the
-  Claim-Governance ladder (CG-L0…CG-L5) rates: v0.2.0 = CG-L2, alpha v0.3.0a1 =
-  CG-L3 (opt-in/default-off).
+- **`phionyx-core`** (the SDK / deterministic engine, latest **v0.8.1**)
+  — produces the signed audit chain this package reads. Its Reasoned Governance
+  Envelope (RGE) is the **reference producer** for AIREP records — the first
+  system that emits them, and the format matures by conforming to it.
+- **`phionyx-pipeline-mcp`** (the self-claim gate, stable **v0.2.0** / alpha **v0.3.0a1**) — its
+  self-claim gate envelopes feed the *"agent's own attestations"* section of
+  every framework template, carrying the deterministic gate verdict for each
+  agent self-claim.
 - **`phionyx-mcp-server`** (the MCP trust boundary, **v0.1.0**) — its third-party
   tool-call envelopes feed the *"tool-call audit"* section.
-- **`phionyx-eval-inspect`** (**v0.1.0**) — Inspect AI `.eval` exports include the
+- **`phionyx-eval`** (alpha **v0.1.0a1**) — Inspect AI `.eval` exports include the
   same envelope chain; the compliance draft can cite the `.eval` log id as the
   reviewer-runnable evidence pointer.
 
-**Evaluation Standard cross-ref:** the
-[`phionyx-evaluation-standard`](https://github.com/halvrenofviryel/phionyx-evaluation-standard)
-(released **v0.1.1 / v0.2.0**; **v0.3** is a draft) is the vendor-neutral spec
-defining the **L0-L3** (evaluation maturity), **D0-D3** (determinism), and
-**CG-L0…CG-L5** (claim-governance) scales. The CG ladder rates the **gate**
-(`phionyx-pipeline-mcp`), not the SDK; `phionyx-core` is the reference
-implementation on the L0-L3 / D0-D3 axes.
+**Evidence-record format cross-ref:** the chains this package reads conform to
+the [**AI Runtime Evidence Protocol (AIREP)**](https://github.com/halvrenofviryel/ai-runtime-evidence-protocol)
+— an experimental, vendor- and model-independent open format for a per-decision
+**AI decision receipt**: one signed, hash-chained, offline-checkable record per
+runtime decision, readable by anyone and tied to no vendor. Each record carries
+groups for subject, input, claim, output, evidence, directive, scope, and
+integrity (plus optional profiles), and is validated by two independent
+verifiers (Python + Node) over RFC 8785 canonical JSON. AIREP is a *proposed*
+open format, **not a ratified standard**; Phionyx's Reasoned Governance Envelope
+(RGE) is its reference producer and an AIREP profile.
 
 ## Plugin command
 
@@ -104,7 +108,7 @@ plugin content is copied verbatim.
 
 ## Status
 
-- **Scaffold.** Package skeleton, dependency pin to `phionyx-core` (v0.7.x line),
+- **Scaffold.** Package skeleton, dependency pin to `phionyx-core` (v0.8.x line),
   CLI entry-point declared.
 - **Template substrate.** First template: `eu-ai-act-article-13` v1.0.0.
   Renderer + CLI subcommands (`list-templates` / `describe` / `render-sample` /
@@ -119,7 +123,7 @@ plugin content is copied verbatim.
   - `owasp-agentic-ai-v1` (OWASP Agentic AI Threats v1.0 — threat coverage)
   with a cross-template parity test suite (`test_all_templates.py`).
 
-All four framework templates are shipped in v0.1.1. The next milestone adds
+All four framework templates are shipped in v0.1.0a1. The next milestone adds
 reasoning-audit and RAG-audit sections to the evidence walker.
 
 See `docs/DESIGN.md` for design notes.
