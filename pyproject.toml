@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "phionyx-compliance"
-version = "0.1.1"
+version = "0.1.0a1"
 description = "Phionyx compliance evidence report draft generator — Article-13-oriented and other governance-framework mappings from RGE v0.2 audit chains."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,7 +24,7 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-  "phionyx-core>=0.6.0",
+  "phionyx-core>=0.8.0",
   "pydantic>=2.0",
   "pyyaml>=6.0",
 ]
@@ -35,7 +35,7 @@ dev = ["pytest>=7.0", "pytest-cov>=4.0", "phionyx-mcp-server>=0.1.0"]
 [project.urls]
 Homepage = "https://phionyx.ai"
 Repository = "https://github.com/halvrenofviryel/phionyx-compliance"
-Documentation = "https://phionyx.ai/standard"
+Documentation = "https://github.com/halvrenofviryel/phionyx-compliance#readme"
 Issues = "https://github.com/halvrenofviryel/phionyx-compliance/issues"
 
 [project.scripts]

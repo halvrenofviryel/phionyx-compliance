@@ -13,7 +13,7 @@ A markdown DRAFT structured against OWASP's Agentic AI threat taxonomy. The outp
 
 | Threat | Chain coverage | Section |
 |---|---|---|
-| T1 Memory Poisoning | operator-required (F15 lands at v0.7.0 W3) | §2 |
+| T1 Memory Poisoning | operator-required (memory-write provenance not yet recorded in the chain) | §2 |
 | T2 Tool Misuse | **chain-derived** (descriptor_change_count, tool_call_count) | §2, §3 |
 | T3 Privilege Compromise | partial (capability profile policy) | §2, §4 |
 | T4 Resource Overload | operator-required (rate-limit telemetry outside chain) | §2, §4 |

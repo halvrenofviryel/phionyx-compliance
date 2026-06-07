@@ -76,7 +76,7 @@ T8 — *Repudiation & Untraceability* — is the threat the runtime evidence cha
 
 The runtime evidence chain provides direct coverage for T2, T6, T8 and partial coverage for T3, T9, T10. Operator retains responsibility for:
 
-1. **T1 Memory Poisoning** — implement memory-write provenance and bound memory access scope (F15 memory diff audit lands at v0.7.0 W3).
+1. **T1 Memory Poisoning** — implement memory-write provenance and bound memory access scope (memory-write provenance is not yet recorded in the chain).
 2. **T4 Resource Overload** — token / API / compute rate-limiting + alarms.
 3. **T5 Cascading Hallucinations** — downstream-effect tracking via the operator's own monitoring stack.
 4. **T7 Misaligned Behaviour** — semantic validation; the chain reports anomaly-flag distribution but does not interpret behaviour.
