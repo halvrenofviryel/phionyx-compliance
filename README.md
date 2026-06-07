@@ -1,7 +1,7 @@
 # phionyx-compliance
 
 > **Evidence-grade compliance report drafts from Phionyx RGE v0.2 audit chains.**
-> AGPL-3.0 · Python 3.10+ · v0.1.0a1 (alpha) on PyPI
+> AGPL-3.0 · Python 3.10+ · v0.1.1 on PyPI
 
 `phionyx-compliance` turns a signed envelope chain produced by `phionyx-core`,
 `phionyx-mcp-server`, or any other Phionyx component into a framework-shaped
@@ -44,7 +44,7 @@ What it does:
 
 ## Supported templates
 
-All four framework templates ship in v0.1.0a1:
+All four framework templates ship in v0.1.1:
 
 | Template | Framework | Status |
 |---|---|---|
@@ -123,7 +123,7 @@ plugin content is copied verbatim.
   - `owasp-agentic-ai-v1` (OWASP Agentic AI Threats v1.0 — threat coverage)
   with a cross-template parity test suite (`test_all_templates.py`).
 
-All four framework templates are shipped in v0.1.0a1. The next milestone adds
+All four framework templates are shipped in v0.1.1. The next milestone adds
 reasoning-audit and RAG-audit sections to the evidence walker.
 
 See `docs/DESIGN.md` for design notes.
