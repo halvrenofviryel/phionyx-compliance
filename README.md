@@ -78,11 +78,11 @@ package is a downstream **adapter** that consumes their output:
   — produces the signed audit chain this package reads. Its Reasoned Governance
   Envelope (RGE) is the **reference producer** for AIREP records — the first
   system that emits them, and the format matures by conforming to it.
-- **`phionyx-pipeline-mcp`** (the self-claim gate, stable **v0.2.0** / alpha **v0.3.0a1**) — its
+- **`phionyx-pipeline-mcp`** (the self-claim gate, **v0.3.0**) — its
   self-claim gate envelopes feed the *"agent's own attestations"* section of
   every framework template, carrying the deterministic gate verdict for each
   agent self-claim.
-- **`phionyx-mcp-server`** (the MCP trust boundary, **v0.1.0**) — its third-party
+- **`phionyx-mcp-server`** (the MCP trust boundary, **v0.2.0**) — its third-party
   tool-call envelopes feed the *"tool-call audit"* section.
 - **`phionyx-eval`** (alpha **v0.1.0a1**) — Inspect AI `.eval` exports include the
   same envelope chain; the compliance draft can cite the `.eval` log id as the
