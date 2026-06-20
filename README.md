@@ -74,7 +74,7 @@ summary (`--format=json`).
 Phionyx ships several distinct components, each with its own version line — this
 package is a downstream **adapter** that consumes their output:
 
-- **`phionyx-core`** (the SDK / deterministic engine, latest **v0.8.1**)
+- **`phionyx-core`** (the SDK / deterministic engine, latest **v0.9.0**)
   — produces the signed audit chain this package reads. Its Reasoned Governance
   Envelope (RGE) is the **reference producer** for AIREP records — the first
   system that emits them, and the format matures by conforming to it.
