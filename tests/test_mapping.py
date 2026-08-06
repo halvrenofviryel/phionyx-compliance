@@ -106,8 +106,10 @@ def test_resolve_canonical_and_derived():
     assert "evidence-oriented" in inputs["disclaimer_head"].lower()
     assert "qualified auditor must review" in inputs["disclaimer_tail"].lower()
 
-    # Derived chain_valid_label (chain is valid in synthetic)
-    assert inputs["chain_valid_label"] == "✓ valid"
+    # Derived chain_valid_label. The synthetic chain was NEVER verified —
+    # from_envelopes() runs no hash walk and no signature check — so the
+    # label must report RECORDED, not a positive (P0.4).
+    assert inputs["chain_valid_label"] == "⚠ RECORDED only — nothing was verified"
 
     # Derived verdict_distribution_table is a markdown table
     assert "| Verdict | Count |" in inputs["verdict_distribution_table"]

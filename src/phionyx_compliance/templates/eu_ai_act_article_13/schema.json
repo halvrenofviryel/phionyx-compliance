@@ -48,7 +48,7 @@
     "key_storage_location": { "type": "string", "description": "[OPERATOR-SUPPLIED] Where the signing key lives." },
     "key_storage_mode": { "type": "string", "description": "[OPERATOR-SUPPLIED] Mode / KMS backend identifier." },
     "key_rotation_event_count": { "type": "integer", "minimum": 0, "description": "[CHAIN-DERIVED] Key rotation envelopes in window (v0.6.0+)." },
-    "key_revocation_referenced_count": { "type": "integer", "minimum": 0, "description": "[CHAIN-DERIVED] Envelopes whose signing key is now revoked." },
+    "key_revocation_referenced_count": { "type": "string", "description": "[CHAIN-DERIVED] Revocation status. Revocation checking is NOT implemented, so this renders a 'not checked' statement rather than a count. It becomes a count only once a revocation check exists." },
     "worm_storage_status": { "type": "string", "description": "[OPERATOR-SUPPLIED] WORM adapter status." },
     "anomaly_followup_instruction": { "type": "string", "description": "[OPERATOR-SUPPLIED] How anomaly envelopes are triaged." },
     "generated_at_iso": { "type": "string", "description": "[DERIVED] Report generation timestamp." },

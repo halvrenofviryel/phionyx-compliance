@@ -68,7 +68,7 @@ For systems that consult external knowledge at inference time (RAG, tool descrip
 
 The audit trail is the per-turn signed envelope chain. Properties:
 
-- **Per-envelope signature algorithm:** Ed25519 (key id: `{{signing_key_id}}`).
+- **Per-envelope signature algorithm (producer-declared, NOT verified by this report):** Ed25519, declared key id `{{signing_key_id}}`. Both the algorithm and the key id are self-declared fields read out of the envelopes; this report does not attest either. What was actually measured is stated in the chain-integrity subsection below.
 - **Chain hash function:** SHA-256, applied to canonical-JSON form of each envelope.
 - **Tamper-evidence:** any modification to a past envelope breaks the SHA-256 chain link and invalidates the signature; `verify_chain_integrity` reports the break.
 - **External verifier surface:** reviewers with the producer's public key can verify the chain without operator infrastructure (Article 13(3) third-party-verifiability obligation).
@@ -89,7 +89,7 @@ Phionyx-side cryptographic posture is documented at `docs/security/CRYPTOGRAPHIC
 
 - Signing keys stored at `{{key_storage_location}}` with mode `{{key_storage_mode}}`.
 - Key rotation events during this window: **{{key_rotation_event_count}}**.
-- Key revocations referenced by the chain: **{{key_revocation_referenced_count}}**.
+- Key revocation status: **{{key_revocation_referenced_count}}**
 - WORM storage adapter status: {{worm_storage_status}}.
 
 > *Items the assessment cannot derive from the chain alone — KMS configuration, network-layer hardening, operator-side incident response posture — remain operator responsibility. Operator-side answers: `docs/security/SECURITY_POSTURE.md`.*

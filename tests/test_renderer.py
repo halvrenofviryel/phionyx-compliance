@@ -39,7 +39,10 @@ def test_render_article_13_sample_end_to_end():
     # Chain-derived synthetic values rendered
     assert "trace-e2dd588aaf4d4c97" in output
     assert "155" in output  # envelope count
-    assert "✓ valid" in output  # chain_valid_label
+    # chain_valid_label — sample mode verifies NOTHING, so it must not
+    # display a verified posture (P0.4).
+    assert "RECORDED only — nothing was verified" in output
+    assert "✓ valid" not in output
 
     # Verdict distribution table rendered
     assert "| Verdict | Count |" in output
@@ -76,15 +79,22 @@ def test_verdict_distribution_table_format():
 
 
 def test_chain_valid_label_helpers():
+    """Legacy positional callers get the HASH-level reading, never a
+    signature-level one — nothing on that call path verified a signature."""
     from phionyx_compliance.renderer import render_chain_valid_label, render_chain_integrity_summary
 
-    assert render_chain_valid_label(True) == "✓ valid"
+    label_ok = render_chain_valid_label(True)
+    assert label_ok == "⚠ HASH_VERIFIED only — signatures NOT verified"
     assert "broken at envelope 7" in render_chain_valid_label(False, broken_at=7)
 
     ok = render_chain_integrity_summary(envelope_count=10, valid=True, broken_at=None, reason=None)
-    assert "validates at assessment time" in ok
+    assert "HASH_VERIFIED" in ok
+    # A hash-chain walk is NOT a signature check — the legacy path must
+    # not claim one.
+    assert "Ed25519 signatures verify" not in ok
+    assert "Signatures were **NOT** verified" in ok
 
     broken = render_chain_integrity_summary(envelope_count=10, valid=False, broken_at=5, reason="hash mismatch")
-    assert "does NOT validate" in broken
+    assert "INVALID" in broken
     assert "broken at envelope 5" in broken
     assert "hash mismatch" in broken

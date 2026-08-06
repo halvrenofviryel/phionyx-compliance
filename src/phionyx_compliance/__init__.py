@@ -47,7 +47,15 @@ CANONICAL_DISCLAIMER_TAIL = (
 
 from .templates import Template, list_templates, load_template  # noqa: E402
 from .renderer import render, sample_inputs  # noqa: E402
-from .chain_view import ChainView, VerifyResult, find_traces  # noqa: E402
+from .chain_view import (  # noqa: E402
+    ASSURANCE_ORDER,
+    ASSURANCE_RANK,
+    REVOCATION_NOT_IMPLEMENTED,
+    ChainView,
+    VerifyResult,
+    find_traces,
+    verify_result_from_upstream,
+)
 from .mapping import resolve_inputs  # noqa: E402
 
 __all__ = [
@@ -63,4 +71,8 @@ __all__ = [
     "VerifyResult",
     "find_traces",
     "resolve_inputs",
+    "ASSURANCE_ORDER",
+    "ASSURANCE_RANK",
+    "REVOCATION_NOT_IMPLEMENTED",
+    "verify_result_from_upstream",
 ]

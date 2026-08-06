@@ -59,6 +59,24 @@ def render(template: Template, inputs: dict[str, Any]) -> str:
     return output
 
 
+def _sample_verify_result():
+    """The verification result of sample mode: nothing was verified.
+
+    Sample mode renders synthetic inputs. No chain is walked, no hash is
+    recomputed, no signature is checked. The honest record is RECORDED.
+    """
+    from .chain_view import NOT_MEASURED, VerifyResult
+
+    return VerifyResult(
+        received=155,
+        reason=(
+            "[SAMPLE] synthetic inputs — no chain was walked and no signature "
+            "was verified"
+        ),
+        measurement_status=NOT_MEASURED,
+    )
+
+
 def sample_inputs(template_name: str) -> dict[str, Any]:
     """Return a schema-valid synthetic input dict for the template.
 
@@ -70,6 +88,7 @@ def sample_inputs(template_name: str) -> dict[str, Any]:
     t = load_template(template_name)
     now_iso = datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
     verdict_distribution = {"pass": 47, "regenerate": 1, "reject": 2, "auto_attest": 70, "n_a": 21}
+    sample_result = _sample_verify_result()
 
     # Common synthetic chain summary shared across all 4 templates
     common: dict[str, Any] = {
@@ -77,7 +96,9 @@ def sample_inputs(template_name: str) -> dict[str, Any]:
         "window_start_iso": "2026-04-26T00:00:00+00:00",
         "window_end_iso": "2026-05-26T23:59:59+00:00",
         "envelope_count": 155,
-        "chain_valid": True,
+        # NOT True: sample mode verified nothing. valid is tri-state; None
+        # means NOT MEASURED.
+        "chain_valid": sample_result.valid,
         "tool_call_count": 132,
         "claim_count": 51,
         "verdict_distribution": verdict_distribution,
@@ -86,11 +107,13 @@ def sample_inputs(template_name: str) -> dict[str, Any]:
         "descriptor_change_count": 0,
         "anomaly_count": 0,
         "signing_key_id": "key-sample-2026-05",
-        "chain_valid_label": "✓ valid",
-        "chain_integrity_summary": (
-            "Chain validates at assessment time. 155 envelopes; no broken links; "
-            "Ed25519 signatures verify against the producer's published public key. "
-            "No mid-window key rotations or revocations."
+        # [SAMPLE] mode runs NO verification at all — it renders synthetic
+        # inputs. It therefore must not display a verified posture. Both
+        # fields are produced by the same derivation the real path uses,
+        # seeded with a RECORDED (nothing measured) result.
+        "chain_valid_label": render_chain_valid_label(result=_sample_verify_result()),
+        "chain_integrity_summary": render_chain_integrity_summary(
+            result=_sample_verify_result()
         ),
         "human_oversight_summary": (
             "[SAMPLE] No HITL invocations recorded in this window. All gate "
@@ -146,7 +169,9 @@ def _sample_article_13() -> dict[str, Any]:
         "worm_storage_status": "not configured (development default)",
         "anomaly_followup_instruction": "[SAMPLE] Each anomaly-flagged envelope is triaged by the on-call ML-platform engineer within 24 hours; mitigation logged in the project's incident response system.",
         "key_rotation_event_count": 0,
-        "key_revocation_referenced_count": 0,
+        # Not 0: nothing checked revocation. Rendering "0" would assert that
+        # zero revoked keys were referenced, which was never established.
+        "key_revocation_referenced_count": render_key_revocation_status(),
         "verification_command": "phionyx-compliance generate --trace trace-e2dd588aaf4d4c97 --template eu-ai-act-article-13",
     }
 
@@ -207,8 +232,15 @@ def _sample_owasp_agentic(verdict_distribution: dict[str, int]) -> dict[str, Any
         "t5_cascading_status":        render_t5_cascading_status(),
         "t6_intent_breaking_status":  render_t6_intent_breaking_status(verdict_distribution=verdict_distribution),
         "t7_misaligned_status":       render_t7_misaligned_status(anomaly_count=0),
-        "t8_repudiation_status":      render_t8_repudiation_status(chain_valid=True, envelope_count=155),
-        "t9_spoofing_status":         render_t9_spoofing_status(signing_key_id="key-sample-2026-05"),
+        "t8_repudiation_status":      render_t8_repudiation_status(
+            envelope_count=155,
+            assurance=_sample_verify_result().assurance,
+            signature_verified=_sample_verify_result().signature_verified,
+        ),
+        "t9_spoofing_status":         render_t9_spoofing_status(
+            signing_key_id="key-sample-2026-05",
+            signature_verified=_sample_verify_result().signature_verified,
+        ),
         "t10_hitl_status":            render_t10_hitl_status(hitl_count=0),
     }
 
@@ -225,32 +257,157 @@ def render_verdict_distribution_table(distribution: dict[str, int]) -> str:
     return "\n".join(lines)
 
 
-def render_chain_valid_label(valid: bool, broken_at: int | None = None) -> str:
-    if valid:
-        return "✓ valid"
-    if broken_at is not None:
-        return f"✗ broken at envelope {broken_at}"
-    return "✗ broken"
+def _coerce_result(
+    result: "VerifyResult | None",
+    envelope_count: int = 0,
+    valid: bool | None = None,
+    broken_at: int | None = None,
+    reason: str | None = None,
+) -> "VerifyResult":
+    """Return `result`, or build a conservative one from legacy args.
+
+    A legacy caller that knows only a boolean `valid` knew, at best, a
+    hash-level fact — it cannot have known a signature fact, because
+    nothing in this package verifies signatures. So `signature_verified`
+    stays None (NOT MEASURED) on that path. This is what makes it
+    impossible for any call route to reach signature language by accident.
+    """
+    from .chain_view import VerifyResult
+
+    if result is not None:
+        return result
+    return VerifyResult(
+        received=envelope_count,
+        hash_verified=None if valid is None else bool(valid),
+        signature_verified=None,
+        broken_at=broken_at,
+        reason=reason,
+    )
+
+
+def render_chain_valid_label(
+    valid: bool | None = None,
+    broken_at: int | None = None,
+    *,
+    result: "VerifyResult | None" = None,
+) -> str:
+    """One-cell verdict. NOT MEASURED is never rendered as ✓ or ✗."""
+    from .chain_view import (
+        HASH_VERIFIED,
+        INVALID,
+        RECORDED,
+        SIGNATURE_VERIFIED,
+    )
+
+    r = _coerce_result(result, valid=valid, broken_at=broken_at)
+    a = r.assurance
+    if a == INVALID:
+        if r.broken_at is not None:
+            return f"✗ INVALID — broken at envelope {r.broken_at}"
+        return "✗ INVALID"
+    if a == SIGNATURE_VERIFIED:
+        return "✓ SIGNATURE_VERIFIED (key trust + revocation NOT checked)"
+    if a == HASH_VERIFIED:
+        return "⚠ HASH_VERIFIED only — signatures NOT verified"
+    if a == RECORDED:
+        return "⚠ RECORDED only — nothing was verified"
+    return "⚠ NOT_MEASURED — no verification was performed"
 
 
 def render_chain_integrity_summary(
-    envelope_count: int,
-    valid: bool,
-    broken_at: int | None,
-    reason: str | None,
+    envelope_count: int = 0,
+    valid: bool | None = None,
+    broken_at: int | None = None,
+    reason: str | None = None,
+    *,
+    result: "VerifyResult | None" = None,
 ) -> str:
-    if valid:
-        return (
-            f"Chain validates at assessment time. {envelope_count} envelopes; "
-            "no broken links; Ed25519 signatures verify against the producer's "
-            "published public key."
-        )
-    return (
-        f"Chain does NOT validate. {envelope_count} envelopes; broken at "
-        f"envelope {broken_at}. Reason: {reason or '<not reported>'}. "
-        "Auditor must treat any claims that depend on envelopes after the "
-        "break point as unverified."
+    """Chain-integrity paragraph DERIVED from what was measured.
+
+    The sentence "Ed25519 signatures verify …" is emitted on exactly one
+    branch: `signature_verified is True`. Nothing else in this package can
+    set that flag except a verification that actually ran and passed.
+    """
+    from .chain_view import (
+        HASH_VERIFIED,
+        INVALID,
+        RECORDED,
+        REVOCATION_NOT_IMPLEMENTED,
+        SIGNATURE_VERIFIED,
     )
+
+    r = _coerce_result(result, envelope_count, valid, broken_at, reason)
+    n = r.received or envelope_count
+    a = r.assurance
+    revocation = f"Key revocation: {REVOCATION_NOT_IMPLEMENTED}"
+
+    if a == INVALID:
+        which = (
+            "signature verification FAILED"
+            if r.signature_verified is False
+            else "hash-chain verification FAILED"
+        )
+        where = (
+            f" broken at envelope {r.broken_at}." if r.broken_at is not None else ""
+        )
+        return (
+            f"Assurance: **INVALID**. {n} envelope(s); {which}.{where} "
+            f"Reason: {r.reason or '<not reported>'}. "
+            "The auditor must treat this chain as unusable evidence and must "
+            "not rely on any claim derived from it. "
+            f"{revocation}"
+        )
+
+    if a == SIGNATURE_VERIFIED:
+        # Deliberately does NOT name an algorithm. This package does not
+        # implement a verifier; it reports the result of whichever verifier
+        # the caller supplied. Naming "Ed25519" here would describe an
+        # unknown (possibly demo/HMAC) verifier as production Ed25519
+        # assurance.
+        return (
+            f"Assurance: **SIGNATURE_VERIFIED**. {n} envelope(s); the hash chain "
+            "is intact and signature verification ran and passed against the "
+            "key material supplied to the verifier. The signature algorithm is "
+            "whatever that verifier implements — this report does not observe "
+            "or attest it. This does NOT establish that the key is the "
+            "producer's legitimate key: key trust was not evaluated. "
+            f"{revocation}"
+        )
+
+    if a == HASH_VERIFIED:
+        return (
+            f"Assurance: **HASH_VERIFIED**. {n} envelope(s); the hash chain is "
+            "intact — linkage and content hashes recompute. Signatures were "
+            "**NOT** verified: no signature verifier was supplied, so an "
+            "envelope whose signature was altered or forged would survive this "
+            "check. Hash-chain continuity is not authenticity. The auditor must "
+            "not read this as a signature or authorship claim. "
+            f"{revocation}"
+        )
+
+    if a == RECORDED:
+        return (
+            f"Assurance: **RECORDED**. {n} envelope(s) were received and read. "
+            "**Nothing was verified**: no hash-chain walk and no signature "
+            "verification were performed. Reason: "
+            f"{r.reason or 'no verification was requested'}. "
+            "The auditor must obtain an independent verification before "
+            "relying on any statement in this report that depends on chain "
+            f"integrity. {revocation}"
+        )
+
+    return (
+        "Assurance: **NOT_MEASURED**. No verification was performed and there "
+        f"is nothing to report. Reason: {r.reason or 'no envelopes to verify'}. "
+        f"{revocation}"
+    )
+
+
+def render_key_revocation_status(*args, **kwargs) -> str:
+    """Revocation is not implemented — say so, do not render a bare 0."""
+    from .chain_view import REVOCATION_NOT_IMPLEMENTED
+
+    return REVOCATION_NOT_IMPLEMENTED
 
 
 def render_verification_command(trace_id: str) -> str:
@@ -321,20 +478,91 @@ def render_t7_misaligned_status(anomaly_count: int = 0, **kwargs) -> str:
     return f"**Partial — review needed.** {anomaly_count} envelopes carry `anomaly_flag=true`; operator's semantic-validation procedure resolves each."
 
 
-def render_t8_repudiation_status(chain_valid: bool = True, envelope_count: int = 0, **kwargs) -> str:
-    if chain_valid and envelope_count > 0:
-        return f"**Chain-derived — direct coverage.** {envelope_count} envelopes; chain validates; every decision is signed and replayable."
-    if not chain_valid:
-        return "**Chain-derived — INTEGRITY FAILURE.** Chain does NOT validate at assessment time. Repudiation defence is compromised; the operator must investigate before the report is used."
-    return "**Partial.** No envelopes in the assessment window — repudiation defence is theoretical until the chain accumulates evidence."
+def render_t8_repudiation_status(
+    chain_valid: bool | None = None,
+    envelope_count: int = 0,
+    signature_verified: bool | None = None,
+    assurance: str | None = None,
+    **kwargs,
+) -> str:
+    """T8 coverage. Non-repudiation is a SIGNATURE property.
+
+    "signed and replayable" is emitted only when signature verification
+    actually ran and passed. A hash chain proves the record was not
+    re-linked; it does not prove who wrote it, so it cannot carry a
+    repudiation-defence claim on its own.
+    """
+    from .chain_view import HASH_VERIFIED, INVALID, RECORDED, SIGNATURE_VERIFIED
+
+    if assurance is None:
+        assurance = (
+            INVALID
+            if chain_valid is False
+            else (SIGNATURE_VERIFIED if chain_valid is True else RECORDED)
+        )
+
+    if assurance == INVALID:
+        return (
+            "**Chain-derived — INTEGRITY FAILURE.** The chain does NOT verify at "
+            "assessment time. Repudiation defence is compromised; the operator "
+            "must investigate before this report is used."
+        )
+    if envelope_count == 0:
+        return (
+            "**NOT_MEASURED.** No envelopes in the assessment window — there is "
+            "no repudiation evidence to assess."
+        )
+    if assurance == SIGNATURE_VERIFIED and signature_verified is not False:
+        return (
+            f"**Chain-derived — direct coverage.** {envelope_count} envelopes; "
+            "signatures verified and the chain is replayable. Key trust and "
+            "revocation were NOT checked, so this is signature validity, not "
+            "attribution to a known-good key."
+        )
+    if assurance == HASH_VERIFIED:
+        return (
+            f"**Partial — NOT sufficient for T8.** {envelope_count} envelopes; the "
+            "hash chain is intact but signatures were **NOT** verified. Hash "
+            "linkage shows the records were not re-ordered or re-linked; it does "
+            "**not** establish who produced them. Non-repudiation is unproven "
+            "until a signature verification runs."
+        )
+    return (
+        f"**NOT MEASURED — no T8 coverage claimed.** {envelope_count} envelopes were "
+        "recorded but neither hash chain nor signatures were verified. This "
+        "report establishes no repudiation defence."
+    )
 
 
-def render_t9_spoofing_status(signing_key_id: str = "", **kwargs) -> str:
+def render_t9_spoofing_status(
+    signing_key_id: str = "",
+    signature_verified: bool | None = None,
+    **kwargs,
+) -> str:
+    """T9 coverage. `integrity.key_id` is a SELF-DECLARED field.
+
+    Until a signature verifies, the key id is an unverified assertion made
+    by the envelope about itself — exactly the thing a spoofing threat
+    would forge. It is reported as "declares", never "signed under".
+    """
+    if signature_verified is True:
+        sig = "Signature verification ran and passed for the window."
+    elif signature_verified is False:
+        sig = "Signature verification ran and **FAILED** — treat as spoofed."
+    else:
+        sig = (
+            "Signature verification did **NOT** run, so the key id below is a "
+            "self-declared, unverified field."
+        )
+    trust = (
+        "Key trust and revocation were NOT checked; key-management posture is "
+        "operator-required."
+    )
     if signing_key_id == "<varies>":
-        return "**Partial — review.** Multiple signing keys observed in the assessment window. Operator confirms each key is legitimate per the rotation log."
+        return f"**Partial — review.** Multiple key ids declared in the window. {sig} {trust}"
     if signing_key_id:
-        return f"**Partial.** All envelopes signed under key `{signing_key_id}`; key-management posture per `docs/security/CRYPTOGRAPHIC_POSTURE_ROADMAP.md` is operator-required."
-    return "**Partial.** No signing key observed in the chain (empty window)."
+        return f"**Partial.** All envelopes declare key id `{signing_key_id}`. {sig} {trust}"
+    return "**NOT_MEASURED.** No key id observed in the chain (empty window)."
 
 
 def render_t10_hitl_status(hitl_count: int = 0, **kwargs) -> str:
@@ -440,6 +668,7 @@ __all__ = [
     "render_verdict_distribution_table",
     "render_chain_valid_label",
     "render_chain_integrity_summary",
+    "render_key_revocation_status",
     "render_verification_command",
     "render_human_oversight_summary",
     "render_generated_at_iso",

@@ -20,6 +20,7 @@ from .renderer import (
     render_chain_valid_label,
     render_generated_at_iso,
     render_human_oversight_summary,
+    render_key_revocation_status,
     render_knowledge_sources_summary_table,
     render_reproduction_command,
     render_retrieval_corpus_summary_table,
@@ -114,9 +115,18 @@ def _resolve_chain_rule(rule: dict, chain: ChainView) -> Any:
                 return next(iter(values))
             return "<varies>"
 
-    # Revocation list (placeholder until v0.6.0+)
+    # Revocation is NOT implemented. Returning `0` here would assert that
+    # zero revoked keys were referenced — a positive finding nothing
+    # established. Return the honest status string instead, so the report
+    # says "not checked" rather than showing a clean count.
     if source == "chain.revoked_keys_referenced":
-        return len(chain.revoked_keys_referenced) if aggregator == "count" else chain.revoked_keys_referenced
+        if chain.verify_result.revocation_checked:
+            return (
+                len(chain.revoked_keys_referenced)
+                if aggregator == "count"
+                else chain.revoked_keys_referenced
+            )
+        return render_key_revocation_status()
 
     return f"<unsupported source: {source!r}>"
 
@@ -145,19 +155,14 @@ def _resolve_derived_rule(
     source = rule.get("source")
 
     if function == "render_chain_valid_label":
-        return render_chain_valid_label(
-            chain.verify_result.valid, chain.verify_result.broken_at
-        )
+        return render_chain_valid_label(result=chain.verify_result)
     if function == "render_verification_command":
         return render_verification_command(chain.trace_id)
     if function == "render_verdict_distribution_table":
         return render_verdict_distribution_table(so_far.get("verdict_distribution") or {})
     if function == "render_chain_integrity_summary":
         return render_chain_integrity_summary(
-            envelope_count=chain.envelope_count,
-            valid=chain.verify_result.valid,
-            broken_at=chain.verify_result.broken_at,
-            reason=chain.verify_result.reason,
+            envelope_count=chain.envelope_count, result=chain.verify_result
         )
     if function == "render_human_oversight_summary":
         # Heuristic: count envelopes whose subject.kind matches a known
@@ -194,6 +199,12 @@ def _resolve_derived_rule(
         kwargs = {
             **{k: v for k, v in so_far.items() if not isinstance(v, (list,))},
             "chain_valid": chain.verify_result.valid,
+            # Per-dimension measurement, so a helper can bind its language to
+            # the specific evidence it needs rather than to a single boolean.
+            "assurance": chain.verify_result.assurance,
+            "hash_verified": chain.verify_result.hash_verified,
+            "signature_verified": chain.verify_result.signature_verified,
+            "revocation_checked": chain.verify_result.revocation_checked,
             "envelope_count": chain.envelope_count,
             "hitl_count": hitl_count,
         }

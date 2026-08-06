@@ -9,16 +9,41 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 
 def test_verify_result_dataclass():
+    """A default VerifyResult has measured NOTHING, and says so."""
     from phionyx_compliance import VerifyResult
 
-    v = VerifyResult(valid=True)
-    assert v.valid is True
+    v = VerifyResult()
+    assert v.assurance == "NOT_MEASURED"
+    assert v.valid is None
+    assert v.schema_valid is None
+    assert v.hash_verified is None
+    assert v.signature_verified is None
+    assert v.revocation_checked is False
     assert v.broken_at is None
     assert v.reason is None
 
 
+def test_verify_result_valid_is_not_constructor_settable():
+    """`valid` is DERIVED. No caller can hand-assert a positive verdict."""
+    from phionyx_compliance import VerifyResult
+
+    try:
+        VerifyResult(valid=True)  # type: ignore[call-arg]
+    except TypeError:
+        pass
+    else:
+        raise AssertionError(
+            "VerifyResult(valid=True) must not be constructible — that is the "
+            "unverified-positive path P0.4 removes"
+        )
+
+
 def test_chain_view_from_envelopes_for_tests():
-    """from_envelopes builds a ChainView without touching the filesystem."""
+    """from_envelopes builds a ChainView without touching the filesystem.
+
+    It verifies NOTHING, so it must report RECORDED / valid=None. This is
+    the P0.4 regression: it previously asserted valid=True.
+    """
     from phionyx_compliance import ChainView
 
     envelopes = [
@@ -28,7 +53,10 @@ def test_chain_view_from_envelopes_for_tests():
     chain = ChainView.from_envelopes("trace-fake", envelopes)
     assert chain.trace_id == "trace-fake"
     assert chain.envelope_count == 2
-    assert chain.verify_result.valid is True
+    assert chain.verify_result.valid is None
+    assert chain.verify_result.assurance == "RECORDED"
+    assert chain.verify_result.hash_verified is None
+    assert chain.verify_result.signature_verified is None
 
 
 def test_find_traces_empty_dir():

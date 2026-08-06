@@ -62,7 +62,7 @@ The chain recorded **{{tool_call_count}}** tool-call envelopes and **{{claim_cou
 
 ## 6. Audit trail (cross-cuts Clause 7.5, Clause 9.1, A.6.2.4)
 
-- **Per-envelope signature algorithm:** Ed25519 (key id: `{{signing_key_id}}`).
+- **Per-envelope signature algorithm (producer-declared, NOT verified by this report):** Ed25519, declared key id `{{signing_key_id}}`. Both the algorithm and the key id are self-declared fields read out of the envelopes; this report does not attest either. What was actually measured is stated in the chain-integrity subsection below.
 - **Chain hash function:** SHA-256, canonical-JSON form.
 - **Tamper-evidence:** any modification to a past envelope breaks the chain link and invalidates the signature.
 - **External verifier surface:** reviewers can verify the chain with only the producer's public key.
