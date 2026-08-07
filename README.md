@@ -82,8 +82,14 @@ package is a downstream **adapter** that consumes their output:
   self-claim gate envelopes feed the *"agent's own attestations"* section of
   every framework template, carrying the deterministic gate verdict for each
   agent self-claim.
-- **`phionyx-mcp-server`** (the MCP trust boundary, **v0.2.0**) — its third-party
-  tool-call envelopes feed the *"tool-call audit"* section.
+- **`phionyx-mcp-server`** (the MCP trust boundary, latest **v0.2.1**) — its
+  third-party tool-call envelopes feed the *"tool-call audit"* section, and its
+  `verify_chain()` is the **only** thing that verifies anything in this
+  pipeline. **`>=0.2.1` is required** (`pip install 'phionyx-compliance[chain]'`).
+  This is a correctness floor, not a convenience pin: 0.1.0's `verify_chain()`
+  walks the hash chain only and reports no per-dimension result, so its
+  `valid=True` carries no signature information. Below the floor this package
+  refuses to run rather than report a signature posture it cannot support.
 - **`phionyx-eval`** (alpha **v0.1.0a1**) — Inspect AI `.eval` exports include the
   same envelope chain; the compliance draft can cite the `.eval` log id as the
   reviewer-runnable evidence pointer.

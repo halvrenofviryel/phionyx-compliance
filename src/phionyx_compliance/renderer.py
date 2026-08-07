@@ -59,6 +59,24 @@ def render(template: Template, inputs: dict[str, Any]) -> str:
     return output
 
 
+def _sample_verify_result():
+    """The verification result of sample mode: nothing was verified.
+
+    Sample mode renders synthetic inputs. No chain is walked, no hash is
+    recomputed, no signature is checked. The honest record is RECORDED.
+    """
+    from .chain_view import NOT_MEASURED, VerifyResult
+
+    return VerifyResult(
+        received=155,
+        reason=(
+            "[SAMPLE] synthetic inputs — no chain was walked and no signature "
+            "was verified"
+        ),
+        measurement_status=NOT_MEASURED,
+    )
+
+
 def sample_inputs(template_name: str) -> dict[str, Any]:
     """Return a schema-valid synthetic input dict for the template.
 
@@ -70,6 +88,7 @@ def sample_inputs(template_name: str) -> dict[str, Any]:
     t = load_template(template_name)
     now_iso = datetime.now(tz=timezone.utc).isoformat(timespec="seconds")
     verdict_distribution = {"pass": 47, "regenerate": 1, "reject": 2, "auto_attest": 70, "n_a": 21}
+    sample_result = _sample_verify_result()
 
     # Common synthetic chain summary shared across all 4 templates
     common: dict[str, Any] = {
@@ -77,7 +96,9 @@ def sample_inputs(template_name: str) -> dict[str, Any]:
         "window_start_iso": "2026-04-26T00:00:00+00:00",
         "window_end_iso": "2026-05-26T23:59:59+00:00",
         "envelope_count": 155,
-        "chain_valid": True,
+        # NOT True: sample mode verified nothing. valid is tri-state; None
+        # means NOT MEASURED.
+        "chain_valid": sample_result.valid,
         "tool_call_count": 132,
         "claim_count": 51,
         "verdict_distribution": verdict_distribution,
@@ -86,11 +107,13 @@ def sample_inputs(template_name: str) -> dict[str, Any]:
         "descriptor_change_count": 0,
         "anomaly_count": 0,
         "signing_key_id": "key-sample-2026-05",
-        "chain_valid_label": "✓ valid",
-        "chain_integrity_summary": (
-            "Chain validates at assessment time. 155 envelopes; no broken links; "
-            "Ed25519 signatures verify against the producer's published public key. "
-            "No mid-window key rotations or revocations."
+        # [SAMPLE] mode runs NO verification at all — it renders synthetic
+        # inputs. It therefore must not display a verified posture. Both
+        # fields are produced by the same derivation the real path uses,
+        # seeded with a RECORDED (nothing measured) result.
+        "chain_valid_label": render_chain_valid_label(result=_sample_verify_result()),
+        "chain_integrity_summary": render_chain_integrity_summary(
+            result=_sample_verify_result()
         ),
         "human_oversight_summary": (
             "[SAMPLE] No HITL invocations recorded in this window. All gate "
@@ -146,7 +169,9 @@ def _sample_article_13() -> dict[str, Any]:
         "worm_storage_status": "not configured (development default)",
         "anomaly_followup_instruction": "[SAMPLE] Each anomaly-flagged envelope is triaged by the on-call ML-platform engineer within 24 hours; mitigation logged in the project's incident response system.",
         "key_rotation_event_count": 0,
-        "key_revocation_referenced_count": 0,
+        # Not 0: nothing checked revocation. Rendering "0" would assert that
+        # zero revoked keys were referenced, which was never established.
+        "key_revocation_referenced_count": render_key_revocation_status(),
         "verification_command": "phionyx-compliance generate --trace trace-e2dd588aaf4d4c97 --template eu-ai-act-article-13",
     }
 
@@ -207,8 +232,23 @@ def _sample_owasp_agentic(verdict_distribution: dict[str, int]) -> dict[str, Any
         "t5_cascading_status":        render_t5_cascading_status(),
         "t6_intent_breaking_status":  render_t6_intent_breaking_status(verdict_distribution=verdict_distribution),
         "t7_misaligned_status":       render_t7_misaligned_status(anomaly_count=0),
-        "t8_repudiation_status":      render_t8_repudiation_status(chain_valid=True, envelope_count=155),
-        "t9_spoofing_status":         render_t9_spoofing_status(signing_key_id="key-sample-2026-05"),
+        "t8_repudiation_status":      render_t8_repudiation_status(
+            envelope_count=155,
+            assurance=_sample_verify_result().assurance,
+            signature_verified=_sample_verify_result().signature_verified,
+            signature_verified_by_upstream=(
+                _sample_verify_result().signature_verified_by_upstream
+            ),
+            verified_by=_sample_verify_result().provenance_label,
+        ),
+        "t9_spoofing_status":         render_t9_spoofing_status(
+            signing_key_id="key-sample-2026-05",
+            signature_verified=_sample_verify_result().signature_verified,
+            signature_verified_by_upstream=(
+                _sample_verify_result().signature_verified_by_upstream
+            ),
+            verified_by=_sample_verify_result().provenance_label,
+        ),
         "t10_hitl_status":            render_t10_hitl_status(hitl_count=0),
     }
 
@@ -225,32 +265,236 @@ def render_verdict_distribution_table(distribution: dict[str, int]) -> str:
     return "\n".join(lines)
 
 
-def render_chain_valid_label(valid: bool, broken_at: int | None = None) -> str:
-    if valid:
-        return "✓ valid"
-    if broken_at is not None:
-        return f"✗ broken at envelope {broken_at}"
-    return "✗ broken"
+#: Explains why a bare boolean produces no positive assurance. Rendered
+#: into the report so the absence is visible rather than silent.
+BOOLEAN_CARRIES_NO_PROVENANCE = (
+    "a bare boolean was supplied instead of a measurement result, so no "
+    "component or version can be named as having verified anything; per the "
+    "provenance rule an unattributed positive is not reportable"
+)
+
+
+def _coerce_result(
+    result: "VerifyResult | None",
+    envelope_count: int = 0,
+    valid: bool | None = None,
+    broken_at: int | None = None,
+    reason: str | None = None,
+) -> "VerifyResult":
+    """Return `result`, or build a conservative one from legacy args.
+
+    A bare boolean is NOT a measurement. It names no component, no
+    version, and no method, so it cannot substantiate any positive
+    assurance level — not signature, and not hash either. This function
+    therefore maps:
+
+        valid=True   → NOTHING positive. hash_verified stays None
+                       (NOT MEASURED); the result reads RECORDED.
+        valid=False  → hash_verified=False (fails closed; a negative
+                       needs no provenance and can never be lifted).
+        valid=None   → NOT MEASURED.
+
+    This is the second half of the AC-1 gate: :class:`VerifyResult` makes
+    an unattributed positive unconstructable, and this makes the legacy
+    boolean call route unable to reach one even by accident.
+    """
+    from .chain_view import VerifyResult
+
+    if result is not None:
+        return result
+    if valid is False:
+        return VerifyResult(
+            received=envelope_count,
+            hash_verified=False,
+            broken_at=broken_at,
+            reason=reason,
+        )
+    note = None if valid is not True else BOOLEAN_CARRIES_NO_PROVENANCE
+    return VerifyResult(
+        received=envelope_count,
+        hash_verified=None,
+        signature_verified=None,
+        broken_at=broken_at,
+        reason=". ".join(x for x in (reason, note) if x) or None,
+    )
+
+
+def render_chain_valid_label(
+    valid: bool | None = None,
+    broken_at: int | None = None,
+    *,
+    result: "VerifyResult | None" = None,
+) -> str:
+    """One-cell verdict. NOT MEASURED is never rendered as ✓ or ✗.
+
+    Every positive cell names the component that produced it: an auditor
+    reading one cell must be able to tell whether THIS report verified
+    anything (it never does) or is re-stating a producer's answer.
+    """
+    from .chain_view import (
+        HASH_VERIFIED,
+        INVALID,
+        RECORDED,
+        SIGNATURE_VERIFIED,
+        SIGNATURE_VERIFIED_BY_UPSTREAM,
+    )
+
+    r = _coerce_result(result, valid=valid, broken_at=broken_at)
+    a = r.assurance
+    who = r.verified_by
+    if a == INVALID:
+        if r.broken_at is not None:
+            return f"✗ INVALID — broken at envelope {r.broken_at}"
+        return "✗ INVALID"
+    if a == SIGNATURE_VERIFIED:
+        return (
+            f"✓ SIGNATURE_VERIFIED by {who} (key trust + revocation NOT checked)"
+        )
+    if a == SIGNATURE_VERIFIED_BY_UPSTREAM:
+        return (
+            f"⚠ SIGNATURE_VERIFIED_BY_UPSTREAM — reported by {who}; "
+            "NOT independently verified by this report "
+            "(key trust + revocation NOT checked)"
+        )
+    if a == HASH_VERIFIED:
+        return f"⚠ HASH_VERIFIED only by {who} — signatures NOT verified"
+    if a == RECORDED:
+        return "⚠ RECORDED only — nothing was verified"
+    return "⚠ NOT_MEASURED — no verification was performed"
 
 
 def render_chain_integrity_summary(
-    envelope_count: int,
-    valid: bool,
-    broken_at: int | None,
-    reason: str | None,
+    envelope_count: int = 0,
+    valid: bool | None = None,
+    broken_at: int | None = None,
+    reason: str | None = None,
+    *,
+    result: "VerifyResult | None" = None,
 ) -> str:
-    if valid:
-        return (
-            f"Chain validates at assessment time. {envelope_count} envelopes; "
-            "no broken links; Ed25519 signatures verify against the producer's "
-            "published public key."
-        )
-    return (
-        f"Chain does NOT validate. {envelope_count} envelopes; broken at "
-        f"envelope {broken_at}. Reason: {reason or '<not reported>'}. "
-        "Auditor must treat any claims that depend on envelopes after the "
-        "break point as unverified."
+    """Chain-integrity paragraph DERIVED from what was measured.
+
+    The sentence "Ed25519 signatures verify …" is emitted on exactly one
+    branch: `signature_verified is True`. Nothing else in this package can
+    set that flag except a verification that actually ran and passed.
+    """
+    from .chain_view import (
+        HASH_VERIFIED,
+        INVALID,
+        RECORDED,
+        REVOCATION_NOT_IMPLEMENTED,
+        SIGNATURE_VERIFIED,
+        SIGNATURE_VERIFIED_BY_UPSTREAM,
     )
+
+    r = _coerce_result(result, envelope_count, valid, broken_at, reason)
+    n = r.received or envelope_count
+    a = r.assurance
+    revocation = f"Key revocation: {REVOCATION_NOT_IMPLEMENTED}"
+    who = r.provenance_label
+
+    if a == SIGNATURE_VERIFIED_BY_UPSTREAM:
+        # The ceiling of this package. The distinction this paragraph must
+        # carry: a verification RESULT was obtained, but not by this
+        # report. The auditor's trust question is about the named
+        # component, not about phionyx-compliance.
+        return (
+            f"Assurance: **SIGNATURE_VERIFIED_BY_UPSTREAM**. {n} envelope(s). "
+            f"Signature verification was performed by {who} and is reported "
+            "here as PASS. **`phionyx-compliance` did not verify it.** This "
+            "package implements no signature verifier; it re-states the "
+            "producer's answer and cannot corroborate it. An upstream "
+            "positive is not self-evidently sound — a verifier that returns "
+            "PASS for a record it should reject would be carried here "
+            "unchanged. The auditor must satisfy themselves that the named "
+            "component's verification is sound before relying on this line. "
+            "The signature algorithm is whatever that component implements; "
+            "this report does not observe or attest it. Key trust was NOT "
+            f"evaluated, so this is not attribution to a known-good key. "
+            f"{revocation}"
+        )
+
+    if a == INVALID:
+        sig_failed = (
+            r.signature_verified is False
+            or r.signature_verified_by_upstream is False
+        )
+        which = (
+            "signature verification FAILED"
+            if sig_failed
+            else "hash-chain verification FAILED"
+        )
+        where = (
+            f" broken at envelope {r.broken_at}." if r.broken_at is not None else ""
+        )
+        return (
+            f"Assurance: **INVALID**. {n} envelope(s); {which}.{where} "
+            f"Reason: {r.reason or '<not reported>'}. "
+            "The auditor must treat this chain as unusable evidence and must "
+            "not rely on any claim derived from it. "
+            f"{revocation}"
+        )
+
+    if a == SIGNATURE_VERIFIED:
+        # Deliberately does NOT name an algorithm. This package does not
+        # implement a verifier; it reports the result of whichever verifier
+        # the caller supplied. Naming "Ed25519" here would describe an
+        # unknown (possibly demo/HMAC) verifier as production Ed25519
+        # assurance.
+        return (
+            f"Assurance: **SIGNATURE_VERIFIED**. {n} envelope(s); the hash chain "
+            "is intact and signature verification ran and passed against the "
+            f"key material supplied to the verifier. Verified by {who}. The "
+            "signature algorithm is "
+            "whatever that verifier implements — this report does not observe "
+            "or attest it. This does NOT establish that the key is the "
+            "producer's legitimate key: key trust was not evaluated. "
+            f"{revocation}"
+        )
+
+    if a == HASH_VERIFIED:
+        # Only claim to know WHY the signature dimension is empty when the
+        # producer actually reported its dimensions. On a dimension-less
+        # verdict we cannot observe how the producer was invoked, so
+        # "no verifier was supplied" would be a fact we never measured.
+        why = (
+            "no signature verifier was supplied"
+            if getattr(r, "dimensions_reported", True)
+            else "the producer reported no signature result"
+        )
+        return (
+            f"Assurance: **HASH_VERIFIED**. {n} envelope(s); the hash chain is "
+            f"intact — linkage and content hashes recompute, as reported by "
+            f"{who}. Signatures were "
+            f"**NOT** verified: {why}, so an "
+            "envelope whose signature was altered or forged would survive this "
+            "check. Hash-chain continuity is not authenticity. The auditor must "
+            "not read this as a signature or authorship claim. "
+            f"{revocation}"
+        )
+
+    if a == RECORDED:
+        return (
+            f"Assurance: **RECORDED**. {n} envelope(s) were received and read. "
+            "**Nothing was verified**: no hash-chain walk and no signature "
+            "verification were performed. Reason: "
+            f"{r.reason or 'no verification was requested'}. "
+            "The auditor must obtain an independent verification before "
+            "relying on any statement in this report that depends on chain "
+            f"integrity. {revocation}"
+        )
+
+    return (
+        "Assurance: **NOT_MEASURED**. No verification was performed and there "
+        f"is nothing to report. Reason: {r.reason or 'no envelopes to verify'}. "
+        f"{revocation}"
+    )
+
+
+def render_key_revocation_status(*args, **kwargs) -> str:
+    """Revocation is not implemented — say so, do not render a bare 0."""
+    from .chain_view import REVOCATION_NOT_IMPLEMENTED
+
+    return REVOCATION_NOT_IMPLEMENTED
 
 
 def render_verification_command(trace_id: str) -> str:
@@ -321,20 +565,153 @@ def render_t7_misaligned_status(anomaly_count: int = 0, **kwargs) -> str:
     return f"**Partial — review needed.** {anomaly_count} envelopes carry `anomaly_flag=true`; operator's semantic-validation procedure resolves each."
 
 
-def render_t8_repudiation_status(chain_valid: bool = True, envelope_count: int = 0, **kwargs) -> str:
-    if chain_valid and envelope_count > 0:
-        return f"**Chain-derived — direct coverage.** {envelope_count} envelopes; chain validates; every decision is signed and replayable."
-    if not chain_valid:
-        return "**Chain-derived — INTEGRITY FAILURE.** Chain does NOT validate at assessment time. Repudiation defence is compromised; the operator must investigate before the report is used."
-    return "**Partial.** No envelopes in the assessment window — repudiation defence is theoretical until the chain accumulates evidence."
+def render_t8_repudiation_status(
+    chain_valid: bool | None = None,
+    envelope_count: int = 0,
+    signature_verified: bool | None = None,
+    signature_verified_by_upstream: bool | None = None,
+    verified_by: object = None,
+    assurance: str | None = None,
+    **kwargs,
+) -> str:
+    """T8 coverage. Non-repudiation is a SIGNATURE property.
+
+    A signature claim is emitted only when signature verification actually
+    ran and passed, and it always names WHO ran it. A hash chain proves
+    the record was not re-linked; it does not prove who wrote it, so it
+    cannot carry a repudiation-defence claim on its own.
+
+    `chain_valid` is a bare boolean and can only ever DOWNGRADE: a False
+    means the chain failed, but a True names no verifier and therefore
+    substantiates nothing. It never selects a signature-level branch.
+    """
+    from .chain_view import (
+        HASH_VERIFIED,
+        INVALID,
+        RECORDED,
+        SIGNATURE_VERIFIED,
+        SIGNATURE_VERIFIED_BY_UPSTREAM,
+    )
+
+    if assurance is None:
+        # A bare boolean cannot lift anything: True yields RECORDED, not a
+        # signature level. Only the negative is actionable.
+        assurance = INVALID if chain_valid is False else RECORDED
+
+    who = verified_by
+    if not who:
+        # No provenance ⇒ no positive branch, whatever `assurance` says.
+        # A signature claim nobody can be named for is not reportable, and
+        # this helper is public API: a caller must not be able to reach
+        # the claim by handing in an assurance string. Negatives are
+        # unaffected — they fail closed and need no attribution.
+        if assurance not in (INVALID,):
+            assurance = RECORDED
+
+    if assurance == INVALID:
+        return (
+            "**Chain-derived — INTEGRITY FAILURE.** The chain does NOT verify at "
+            "assessment time. Repudiation defence is compromised; the operator "
+            "must investigate before this report is used."
+        )
+    if envelope_count == 0:
+        return (
+            "**NOT_MEASURED.** No envelopes in the assessment window — there is "
+            "no repudiation evidence to assess."
+        )
+    if assurance == SIGNATURE_VERIFIED and signature_verified is not False:
+        return (
+            f"**Chain-derived — direct coverage.** {envelope_count} envelopes; "
+            f"signatures verified by {who} and the chain is replayable. Key "
+            "trust and "
+            "revocation were NOT checked, so this is signature validity, not "
+            "attribution to a known-good key."
+        )
+    if (
+        assurance == SIGNATURE_VERIFIED_BY_UPSTREAM
+        and signature_verified_by_upstream is not False
+    ):
+        return (
+            f"**Carried from upstream — NOT independently verified.** "
+            f"{envelope_count} envelopes; {who} reports that signature "
+            "verification passed. `phionyx-compliance` did not verify it and "
+            "cannot corroborate it. T8 coverage rests entirely on the named "
+            "component being sound; an over-permissive verifier would be "
+            "carried here unchanged. Key trust and revocation were NOT "
+            "checked, so this is not attribution to a known-good key."
+        )
+    if assurance == HASH_VERIFIED:
+        return (
+            f"**Partial — NOT sufficient for T8.** {envelope_count} envelopes; the "
+            "hash chain is intact but signatures were **NOT** verified. Hash "
+            "linkage shows the records were not re-ordered or re-linked; it does "
+            "**not** establish who produced them. Non-repudiation is unproven "
+            "until a signature verification runs."
+        )
+    return (
+        f"**NOT MEASURED — no T8 coverage claimed.** {envelope_count} envelopes were "
+        "recorded but neither hash chain nor signatures were verified. This "
+        "report establishes no repudiation defence."
+    )
 
 
-def render_t9_spoofing_status(signing_key_id: str = "", **kwargs) -> str:
+def render_t9_spoofing_status(
+    signing_key_id: str = "",
+    signature_verified: bool | None = None,
+    signature_verified_by_upstream: bool | None = None,
+    verified_by: object = None,
+    **kwargs,
+) -> str:
+    """T9 coverage. `integrity.key_id` is a SELF-DECLARED field.
+
+    Until a signature verifies, the key id is an unverified assertion made
+    by the envelope about itself — exactly the thing a spoofing threat
+    would forge. It is reported as "declares", never "signed under".
+    """
+    who = verified_by
+    if not who and (
+        signature_verified is True or signature_verified_by_upstream is True
+    ):
+        # An unattributed pass is not reportable — fall through to the
+        # "did NOT run" wording rather than name nobody. Failures below
+        # are unaffected: a negative fails closed without attribution.
+        signature_verified = None
+        signature_verified_by_upstream = None
+
+    if signature_verified is True:
+        sig = f"Signature verification ran and passed for the window ({who})."
+    elif signature_verified is False:
+        sig = "Signature verification ran and **FAILED** — treat as spoofed."
+    elif signature_verified_by_upstream is False:
+        # `who` may be absent on a direct call; never interpolate a bare
+        # None as the subject of a sentence in a compliance artefact.
+        sig = (
+            f"{who} reports that signature verification **FAILED** — treat as "
+            "spoofed."
+            if who
+            else "Signature verification **FAILED** — treat as spoofed. The "
+            "component that reported this is not recorded."
+        )
+    elif signature_verified_by_upstream is True:
+        sig = (
+            f"{who} reports that signature verification passed. This report "
+            "did **NOT** verify it independently, so the key id below rests on "
+            "that component's answer, not on any check performed here."
+        )
+    else:
+        sig = (
+            "Signature verification did **NOT** run, so the key id below is a "
+            "self-declared, unverified field."
+        )
+    trust = (
+        "Key trust and revocation were NOT checked; key-management posture is "
+        "operator-required."
+    )
     if signing_key_id == "<varies>":
-        return "**Partial — review.** Multiple signing keys observed in the assessment window. Operator confirms each key is legitimate per the rotation log."
+        return f"**Partial — review.** Multiple key ids declared in the window. {sig} {trust}"
     if signing_key_id:
-        return f"**Partial.** All envelopes signed under key `{signing_key_id}`; key-management posture per `docs/security/CRYPTOGRAPHIC_POSTURE_ROADMAP.md` is operator-required."
-    return "**Partial.** No signing key observed in the chain (empty window)."
+        return f"**Partial.** All envelopes declare key id `{signing_key_id}`. {sig} {trust}"
+    return "**NOT_MEASURED.** No key id observed in the chain (empty window)."
 
 
 def render_t10_hitl_status(hitl_count: int = 0, **kwargs) -> str:
@@ -440,6 +817,7 @@ __all__ = [
     "render_verdict_distribution_table",
     "render_chain_valid_label",
     "render_chain_integrity_summary",
+    "render_key_revocation_status",
     "render_verification_command",
     "render_human_oversight_summary",
     "render_generated_at_iso",

@@ -15,8 +15,20 @@ sys.path.insert(
 
 
 def test_package_imports():
+    """__version__ must match the INSTALLED distribution, not a literal.
+
+    STRENGTHENED (WP-03). This test previously pinned the hardcoded
+    "0.1.0a1.dev0" while pyproject.toml declared 0.1.1 — it asserted the
+    drift rather than catching it. Reports and the CLI banner name this
+    value as the report producer's version, so a drifted literal is a
+    wrong provenance fact inside an evidence artefact.
+    """
+    from importlib.metadata import version
+
     import phionyx_compliance
-    assert phionyx_compliance.__version__ == "0.1.0a1.dev0"
+
+    assert phionyx_compliance.__version__ == version("phionyx-compliance")
+    assert phionyx_compliance.__version__ != "0.0.0+unknown"
 
 
 def test_cli_builds():

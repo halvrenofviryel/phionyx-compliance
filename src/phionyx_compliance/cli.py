@@ -15,7 +15,7 @@ from pathlib import Path
 from . import __version__
 from .templates import list_templates, load_template
 from .renderer import render, sample_inputs
-from .chain_view import ChainView
+from .chain_view import ChainView, IncompatibleProducerError
 from .mapping import resolve_inputs
 
 
@@ -63,21 +63,43 @@ def cmd_generate(args: argparse.Namespace) -> int:
         except FileNotFoundError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 4
+        except IncompatibleProducerError as exc:
+            # Fail loudly and closed: the producer cannot answer what a
+            # report needs. Distinct exit code so a wrong dependency
+            # version is diagnosable from CI, not confused with a missing
+            # chain or a missing package.
+            print(f"error: {exc}", file=sys.stderr)
+            return 7
         except ImportError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 5
-        if args.strict and not chain.verify_result.valid:
+        # Fail closed: NOT MEASURED (valid is None) is not a pass. --strict
+        # renders only on a positive verification, never on an absence of one.
+        if args.strict and chain.verify_result.valid is not True:
+            state = (
+                "chain verification FAILED"
+                if chain.verify_result.valid is False
+                else "chain was NOT verified"
+            )
             print(
-                f"error: chain validation failed ({chain.verify_result.reason!r} "
-                f"at envelope {chain.verify_result.broken_at}); refusing to render "
-                f"in --strict mode.",
+                f"error: {state} — assurance={chain.verify_result.assurance} "
+                f"(hash_verified={chain.verify_result.hash_verified}, "
+                f"signature_verified={chain.verify_result.signature_verified}, "
+                f"reason={chain.verify_result.reason!r}, "
+                f"broken_at={chain.verify_result.broken_at}); "
+                f"refusing to render in --strict mode.",
                 file=sys.stderr,
             )
             return 6
 
         operator_inputs = _load_operator_inputs(args.operator_inputs)
         inputs = resolve_inputs(template, chain, operator_inputs)
-        mode_label = f"real chain render ({chain.envelope_count} envelopes, valid={chain.verify_result.valid})"
+        mode_label = (
+            f"real chain render ({chain.envelope_count} envelopes, "
+            f"assurance={chain.verify_result.assurance}, "
+            f"valid={chain.verify_result.valid}, "
+            f"verified_by={chain.verify_result.verified_by})"
+        )
 
     markdown = render(template, inputs)
 

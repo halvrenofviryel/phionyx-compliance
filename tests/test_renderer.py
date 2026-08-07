@@ -39,7 +39,10 @@ def test_render_article_13_sample_end_to_end():
     # Chain-derived synthetic values rendered
     assert "trace-e2dd588aaf4d4c97" in output
     assert "155" in output  # envelope count
-    assert "✓ valid" in output  # chain_valid_label
+    # chain_valid_label — sample mode verifies NOTHING, so it must not
+    # display a verified posture (P0.4).
+    assert "RECORDED only — nothing was verified" in output
+    assert "✓ valid" not in output
 
     # Verdict distribution table rendered
     assert "| Verdict | Count |" in output
@@ -76,15 +79,35 @@ def test_verdict_distribution_table_format():
 
 
 def test_chain_valid_label_helpers():
+    """Legacy positional callers get NO positive at all.
+
+    STRENGTHENED (WP-03). This test previously accepted HASH_VERIFIED from
+    `render_chain_valid_label(True)`. A bare boolean names no component,
+    no version and no method, so it substantiates no positive assurance
+    level — not signature, and not hash either. The legacy boolean route
+    now reads NOT_MEASURED. The negative still lands, because a negative
+    fails closed and needs no provenance.
+    """
     from phionyx_compliance.renderer import render_chain_valid_label, render_chain_integrity_summary
 
-    assert render_chain_valid_label(True) == "✓ valid"
+    label_ok = render_chain_valid_label(True)
+    assert label_ok == "⚠ NOT_MEASURED — no verification was performed"
+    assert "HASH_VERIFIED" not in label_ok
+    assert "SIGNATURE" not in label_ok
     assert "broken at envelope 7" in render_chain_valid_label(False, broken_at=7)
 
+    # 10 envelopes were RECEIVED, so RECORDED is the honest floor — but the
+    # boolean buys nothing above it.
     ok = render_chain_integrity_summary(envelope_count=10, valid=True, broken_at=None, reason=None)
-    assert "validates at assessment time" in ok
+    assert "RECORDED" in ok
+    assert "Nothing was verified" in ok
+    assert "HASH_VERIFIED" not in ok
+    # A hash-chain walk is NOT a signature check — and a boolean is not a
+    # hash-chain walk. The legacy path must claim neither.
+    assert "Ed25519 signatures verify" not in ok
+    assert "SIGNATURE_VERIFIED" not in ok
 
     broken = render_chain_integrity_summary(envelope_count=10, valid=False, broken_at=5, reason="hash mismatch")
-    assert "does NOT validate" in broken
+    assert "INVALID" in broken
     assert "broken at envelope 5" in broken
     assert "hash mismatch" in broken
