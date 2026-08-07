@@ -390,14 +390,30 @@ def test_sample_mode_does_not_claim_verification(name):
 
 
 def test_owasp_t8_refuses_repudiation_claim_without_signature():
-    """Non-repudiation is a signature property, not a hash property."""
+    """Non-repudiation is a signature property, not a hash property.
+
+    STRENGTHENED (WP-03): now covers BOTH provenance states. The
+    HASH_VERIFIED wording asserts the chain is intact, which is itself a
+    positive sub-claim, so it is only reachable when a component is named
+    for it. Unattributed, the helper falls back to RECORDED.
+    """
     from phionyx_compliance.renderer import render_t8_repudiation_status
 
     hash_only = render_t8_repudiation_status(
-        envelope_count=10, assurance="HASH_VERIFIED", signature_verified=None
+        envelope_count=10,
+        assurance="HASH_VERIFIED",
+        signature_verified=None,
+        verified_by="`phionyx-mcp-server` version `0.2.1`",
     )
     assert "every decision is signed and replayable" not in hash_only
     assert "NOT** verified" in hash_only or "NOT sufficient" in hash_only
+
+    # Same assurance, no component named → the positive is not claimed.
+    unattributed = render_t8_repudiation_status(
+        envelope_count=10, assurance="HASH_VERIFIED", signature_verified=None
+    )
+    assert "hash chain is intact" not in unattributed
+    assert "no repudiation defence" in unattributed.lower()
 
     nothing = render_t8_repudiation_status(
         envelope_count=10, assurance="RECORDED", signature_verified=None

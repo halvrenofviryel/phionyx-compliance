@@ -589,7 +589,15 @@ def render_t8_repudiation_status(
         # signature level. Only the negative is actionable.
         assurance = INVALID if chain_valid is False else RECORDED
 
-    who = verified_by or "an unnamed component"
+    who = verified_by
+    if not who:
+        # No provenance ⇒ no positive branch, whatever `assurance` says.
+        # A signature claim nobody can be named for is not reportable, and
+        # this helper is public API: a caller must not be able to reach
+        # the claim by handing in an assurance string. Negatives are
+        # unaffected — they fail closed and need no attribution.
+        if assurance not in (INVALID,):
+            assurance = RECORDED
 
     if assurance == INVALID:
         return (
@@ -651,7 +659,16 @@ def render_t9_spoofing_status(
     by the envelope about itself — exactly the thing a spoofing threat
     would forge. It is reported as "declares", never "signed under".
     """
-    who = verified_by or "an unnamed component"
+    who = verified_by
+    if not who and (
+        signature_verified is True or signature_verified_by_upstream is True
+    ):
+        # An unattributed pass is not reportable — fall through to the
+        # "did NOT run" wording rather than name nobody. Failures below
+        # are unaffected: a negative fails closed without attribution.
+        signature_verified = None
+        signature_verified_by_upstream = None
+
     if signature_verified is True:
         sig = f"Signature verification ran and passed for the window ({who})."
     elif signature_verified is False:

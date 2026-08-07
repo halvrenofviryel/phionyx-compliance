@@ -294,6 +294,49 @@ def test_report_does_not_present_upstream_result_as_its_own(name):
     assert "Assurance: **SIGNATURE_VERIFIED**" not in out
 
 
+def test_renderer_helpers_refuse_an_unattributed_positive():
+    """AC-3. The public renderer helpers are a call surface too.
+
+    Measured before this fix: handing `render_t8_repudiation_status` an
+    assurance string with no `verified_by` rendered "signatures verified
+    by an unnamed component" — a signature claim attributable to nobody.
+    """
+    from phionyx_compliance.renderer import (
+        render_t8_repudiation_status,
+        render_t9_spoofing_status,
+    )
+
+    for assurance, flags in (
+        ("SIGNATURE_VERIFIED", {"signature_verified": True}),
+        (
+            "SIGNATURE_VERIFIED_BY_UPSTREAM",
+            {"signature_verified_by_upstream": True},
+        ),
+    ):
+        out = render_t8_repudiation_status(
+            assurance=assurance, envelope_count=5, **flags
+        )
+        assert "unnamed component" not in out, assurance
+        assert "signatures verified" not in out, assurance
+        assert "reports that signature verification passed" not in out, assurance
+        assert "no repudiation defence" in out.lower(), assurance
+
+    for flags in (
+        {"signature_verified": True},
+        {"signature_verified_by_upstream": True},
+    ):
+        out = render_t9_spoofing_status(signing_key_id="k", **flags)
+        assert "unnamed component" not in out, flags
+        assert "ran and passed" not in out, flags
+        assert "did **NOT** run" in out, flags
+
+    # A negative still lands without provenance — it fails closed.
+    failed = render_t8_repudiation_status(assurance="INVALID", envelope_count=5)
+    assert "INTEGRITY FAILURE" in failed
+    spoofed = render_t9_spoofing_status(signing_key_id="k", signature_verified=False)
+    assert "treat as spoofed" in spoofed
+
+
 def test_provenance_label_is_empty_when_nothing_measured():
     from phionyx_compliance import VerifyResult
 
