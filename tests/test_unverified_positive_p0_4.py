@@ -135,6 +135,7 @@ def test_hash_verification_alone_is_not_a_positive_verdict():
         hash_verified=True,
         signature_verified=None,
         verified_by=MeasurementProvenance("phionyx-mcp-server", "0.2.1"),
+        attested=frozenset({"hash_verified"}),
     )
     assert r.assurance == "HASH_VERIFIED"
     assert r.valid is None, "hash continuity must not be reported as overall validity"
@@ -292,17 +293,21 @@ def test_verified_and_trusted_are_unreachable_here():
     check, so it must never report VERIFIED or TRUSTED.
 
     STRENGTHENED (WP-03): the strongest constructible result now also
-    requires provenance, and `verified_independently` stays False because
-    nothing in this package verified anything.
+    requires per-dimension provenance, and the self-verified dimension can
+    only be attributed to this package — which never sets it.
     """
     from phionyx_compliance import MeasurementProvenance, VerifyResult
 
+    # The theoretical top of what this class can express. Reachable only by
+    # naming phionyx-compliance itself as the verifier; no code path here
+    # produces such a provenance, so this shape never occurs in a report.
     strongest = VerifyResult(
         received=2,
         schema_valid=True,
         hash_verified=True,
         signature_verified=True,
-        verified_by=MeasurementProvenance("some-verifier", "9.9.9"),
+        verified_by=MeasurementProvenance("phionyx-compliance", "9.9.9"),
+        attested=frozenset({"schema_valid", "hash_verified", "signature_verified"}),
     )
     assert strongest.assurance == "SIGNATURE_VERIFIED"
     assert strongest.assurance not in ("VERIFIED", "TRUSTED")
@@ -312,6 +317,7 @@ def test_verified_and_trusted_are_unreachable_here():
         hash_verified=True,
         signature_verified_by_upstream=True,
         verified_by=MeasurementProvenance("phionyx-mcp-server", "0.2.1"),
+        attested=frozenset({"hash_verified", "signature_verified_by_upstream"}),
     )
     assert carried.assurance == "SIGNATURE_VERIFIED_BY_UPSTREAM"
     assert carried.verified_independently is False
@@ -663,4 +669,7 @@ def test_positive_control_signature_verified_unlocks_the_claim():
     assert "Ed25519 signatures verify" not in out
     # Assurance still stops below VERIFIED.
     assert "key revocation is not implemented" in out.lower()
-    assert "key trust was not evaluated" in out.lower()
+    # Exact sentence from the BY_UPSTREAM branch. Asserted case-sensitively:
+    # lowercasing the whole document would also pass on unrelated casings,
+    # which is strictly weaker than the assertion this replaced.
+    assert "Key trust was NOT evaluated, so this is not attribution" in out

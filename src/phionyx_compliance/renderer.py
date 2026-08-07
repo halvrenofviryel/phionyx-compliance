@@ -452,11 +452,20 @@ def render_chain_integrity_summary(
         )
 
     if a == HASH_VERIFIED:
+        # Only claim to know WHY the signature dimension is empty when the
+        # producer actually reported its dimensions. On a dimension-less
+        # verdict we cannot observe how the producer was invoked, so
+        # "no verifier was supplied" would be a fact we never measured.
+        why = (
+            "no signature verifier was supplied"
+            if getattr(r, "dimensions_reported", True)
+            else "the producer reported no signature result"
+        )
         return (
             f"Assurance: **HASH_VERIFIED**. {n} envelope(s); the hash chain is "
             f"intact — linkage and content hashes recompute, as reported by "
             f"{who}. Signatures were "
-            "**NOT** verified: no signature verifier was supplied, so an "
+            f"**NOT** verified: {why}, so an "
             "envelope whose signature was altered or forged would survive this "
             "check. Hash-chain continuity is not authenticity. The auditor must "
             "not read this as a signature or authorship claim. "
@@ -674,9 +683,14 @@ def render_t9_spoofing_status(
     elif signature_verified is False:
         sig = "Signature verification ran and **FAILED** — treat as spoofed."
     elif signature_verified_by_upstream is False:
+        # `who` may be absent on a direct call; never interpolate a bare
+        # None as the subject of a sentence in a compliance artefact.
         sig = (
             f"{who} reports that signature verification **FAILED** — treat as "
             "spoofed."
+            if who
+            else "Signature verification **FAILED** — treat as spoofed. The "
+            "component that reported this is not recorded."
         )
     elif signature_verified_by_upstream is True:
         sig = (

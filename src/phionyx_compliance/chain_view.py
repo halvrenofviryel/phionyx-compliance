@@ -24,9 +24,16 @@ from typing import Any
 # Required floor: 0.2.1. Measured 2026-08-07 on this repo's suite:
 #
 #   phionyx-mcp-server 0.2.1  verify_chain(envelopes, verifier=...) ->
+#       On its PASS, NOT_MEASURED and signature-FAILURE returns:
 #       {valid, hash_chain_valid, signatures_verified, measurement_status, ...}
 #       — reports each dimension SEPARATELY and returns valid=None /
 #       measurement_status=NOT_MEASURED when no signature verifier ran.
+#       NOTE: its four HASH-FAILURE returns (mixed schemas, missing field,
+#       previous-hash mismatch, content-hash mismatch) are bare
+#       {valid: False, checked, broken_at, reason} with no dimension
+#       fields. A dimension-less verdict is therefore NOT by itself
+#       evidence of an old producer — only a dimension-less verdict
+#       carrying a POSITIVE is.
 #
 #   phionyx-mcp-server 0.1.0  verify_chain(envelopes) ->
 #       {valid, checked, broken_at, reason}
@@ -160,40 +167,82 @@ class MeasurementProvenance:
 
 def _installed_version(dist: str) -> str | None:
     try:
-        from importlib.metadata import PackageNotFoundError, version
+        from importlib.metadata import version
 
         return version(dist)
     except Exception:  # PackageNotFoundError or anything import-related
         return None
 
 
+class _AmbiguousVersion(ValueError):
+    """A version string this module refuses to order (e.g. a pre-release)."""
+
+
 def _version_tuple(v: str) -> tuple:
+    """Order a release version. REFUSES pre-releases rather than truncating.
+
+    Truncating suffixes silently admits below-floor builds: "0.2.1rc1" and
+    "0.2.1a1" would compare EQUAL to the floor, and "0.2.1.dev0" GREATER
+    (``(0,2,1,0) > (0,2,1)``). A release candidate of the floor version is
+    not the floor version, and dev builds of this producer are in
+    circulation. Anything non-final is rejected by the caller.
+    """
+    text = str(v).strip()
+    core = text.split("+")[0]
     parts: list[int] = []
-    for chunk in str(v).split("+")[0].split("-")[0].split("."):
-        digits = ""
-        for ch in chunk:
-            if ch.isdigit():
-                digits += ch
-            else:
-                break
-        parts.append(int(digits) if digits else 0)
+    for chunk in core.split("."):
+        if not chunk.isdigit():
+            raise _AmbiguousVersion(text)
+        parts.append(int(chunk))
+    if not parts:
+        raise _AmbiguousVersion(text)
     return tuple(parts)
+
+
+def _meets_floor(installed: str, minimum: str) -> bool:
+    """True only for a final release at or above ``minimum``."""
+    try:
+        return _version_tuple(installed) >= _version_tuple(minimum)
+    except _AmbiguousVersion:
+        # Pre-release / dev / local build: not orderable against the floor
+        # by this module, so it does not meet it. Fail closed.
+        return False
 
 
 def require_producer(
     minimum: str = REQUIRED_MCP_SERVER_VERSION,
+    module: Any = None,
 ) -> MeasurementProvenance:
-    """Assert the installed producer meets the contract; return its identity.
+    """Assert the producer meets the contract; return its identity.
 
     FAILS LOUDLY AND CLOSED. Below the floor the producer returns a
     hash-only verdict that this consumer would otherwise map onto a
     signature fact (see the module header) — a silent wrong answer. There
     is no degraded mode: raise.
 
+    Args:
+        module: the ALREADY-IMPORTED ``phionyx_mcp_server`` module whose
+            code will actually run. Provenance must describe the code that
+            produces the verdict, not whatever the environment's package
+            metadata happens to say. ``from_disk`` prepends a monorepo
+            source path to ``sys.path``, which can shadow the installed
+            distribution with a same-numbered but DIFFERENT build; naming
+            the metadata version in that case is a wrong provenance fact
+            in an evidence artefact. When the module reports a version
+            that disagrees with the installed distribution, we refuse
+            rather than pick one.
+
     Raises:
-        IncompatibleProducerError: not installed, or below the floor.
+        IncompatibleProducerError: not installed, below the floor, a
+            non-final (pre-release/dev) build, or an ambiguous identity.
     """
-    installed = _installed_version("phionyx-mcp-server")
+    dist_version = _installed_version("phionyx-mcp-server")
+    module_version = None
+    if module is not None:
+        raw = getattr(module, "__version__", None)
+        module_version = str(raw) if raw else None
+
+    installed = module_version or dist_version
     if installed is None:
         raise IncompatibleProducerError(
             "phionyx-mcp-server is not installed. phionyx-compliance performs "
@@ -202,13 +251,31 @@ def require_producer(
             f"'phionyx-mcp-server>={minimum}' "
             "(e.g. pip install 'phionyx-compliance[chain]')."
         )
-    if _version_tuple(installed) < _version_tuple(minimum):
+
+    if (
+        module_version is not None
+        and dist_version is not None
+        and module_version != dist_version
+    ):
+        where = getattr(module, "__file__", "<unknown>")
         raise IncompatibleProducerError(
-            f"phionyx-mcp-server {installed} is installed but "
-            f">={minimum} is required. Version {installed} reports a "
-            "HASH-CHAIN-ONLY verdict with no per-dimension fields; its "
-            "valid=True does NOT mean any signature was checked. Mapping it "
-            "would report SIGNATURE assurance for an unverified chain. "
+            f"ambiguous producer identity: the imported phionyx_mcp_server "
+            f"module reports version {module_version} (loaded from {where}) "
+            f"but the installed distribution reports {dist_version}. "
+            "Provenance must name the code that actually produced the "
+            "verdict, and these disagree. Refusing rather than attributing "
+            "the result to a version that may not have run."
+        )
+
+    if not _meets_floor(installed, minimum):
+        raise IncompatibleProducerError(
+            f"phionyx-mcp-server {installed} is installed but a final "
+            f"release >={minimum} is required. Version {installed} either "
+            "predates the per-dimension verdict contract — reporting a "
+            "HASH-CHAIN-ONLY result whose valid=True does NOT mean any "
+            "signature was checked, which would render SIGNATURE assurance "
+            "for an unverified chain — or is a non-final build "
+            "(pre-release/dev) whose behaviour is not pinned. "
             f"Refusing. Upgrade: pip install -U 'phionyx-mcp-server>={minimum}'."
         )
     return MeasurementProvenance(
@@ -275,6 +342,17 @@ class VerifyResult:
     measurement_status: str | None = None
     #: WHO measured. Mandatory for any positive dimension.
     verified_by: MeasurementProvenance | None = None
+    #: WHICH dimensions ``verified_by`` actually attests. Provenance is
+    #: per-DIMENSION, not per-object: a producer that reported a hash
+    #: result did not thereby report a signature result, and reusing its
+    #: identity for a dimension it never spoke to is a fabrication.
+    #: Populated by ``verify_result_from_upstream`` from the verdict's
+    #: actual content.
+    attested: frozenset = frozenset()
+    #: Whether the producer's verdict carried per-dimension fields. False
+    #: means the renderer must not assert anything about HOW the producer
+    #: was invoked — only that no signature result was reported.
+    dimensions_reported: bool = True
 
     #: Dimensions that may not be True without provenance.
     _PROVENANCE_REQUIRED = (
@@ -300,6 +378,36 @@ class VerifyResult:
                 "phionyx-compliance verifies nothing itself; use "
                 "verify_result_from_upstream() to carry a producer result."
             )
+        unattested = [n for n in positives if n not in self.attested]
+        if unattested:
+            # Closes the dataclasses.replace() escalation: replace() re-runs
+            # __post_init__ carrying the ORIGINAL provenance, so an
+            # object-level provenance check passes while a new dimension is
+            # invented. Measured: replace(upstream_result,
+            # signature_verified=True) yielded SIGNATURE_VERIFIED / valid=True
+            # and credited the producer with a check nobody ran.
+            raise UnprovenancedAssuranceError(
+                f"dimension(s) {sorted(unattested)} set to True but not "
+                f"attested by {self.verified_by}. `attested` records which "
+                "dimensions the named component actually reported; a "
+                "provenance for one dimension is not provenance for another. "
+                "If the component really did measure it, add the dimension "
+                "to `attested` at the point the measurement is read."
+            )
+        if self.signature_verified is True:
+            # This package implements no verifier, so "WE verified" can only
+            # ever be attributed to this package — and nothing here produces
+            # such a provenance. Keeps the vocabulary complete without
+            # leaving the top of the ladder reachable.
+            component = getattr(self.verified_by, "component", None)
+            if component != "phionyx-compliance":
+                raise UnprovenancedAssuranceError(
+                    "signature_verified=True means THIS package ran the "
+                    f"signature check, but the provenance names {component!r}. "
+                    "A third party's result belongs in "
+                    "signature_verified_by_upstream, which reports as a "
+                    "carried claim rather than as this report's own finding."
+                )
         if self.revocation_checked is True:
             # Nothing in this package checks revocation. An upstream flag
             # must not flip it — a consumer cannot strengthen upstream
@@ -409,12 +517,15 @@ class ChainView:
             FileNotFoundError: if the chain directory for the trace does
                                not exist.
         """
-        # Fail closed on the producer contract before touching any data.
-        provenance = require_producer()
-
         # Find phionyx-mcp-server (sibling package in the monorepo)
         # Locate it via the same defensive sys.path manipulation the
         # pipeline MCP uses (see phionyx_claude_mcp.py:198).
+        #
+        # ORDER MATTERS: this insert can SHADOW the installed distribution
+        # with a same-numbered but different monorepo build. The producer
+        # contract is therefore checked AFTER the import, against the
+        # module that will actually run — checking metadata first would
+        # gate one build and then execute another.
         repo_root = Path(__file__).resolve().parents[4]
         server_src = repo_root / "tools" / "phionyx_mcp_server" / "src"
         if server_src.is_dir() and str(server_src) not in sys.path:
@@ -431,6 +542,11 @@ class ChainView:
                 "Install it (pip install phionyx-mcp-server) or run within "
                 "the Phionyx monorepo where it is a sibling package."
             ) from exc
+
+        # Fail closed on the producer contract, bound to the imported code.
+        import phionyx_mcp_server  # type: ignore[import-not-found]
+
+        provenance = require_producer(module=phionyx_mcp_server)
 
         store = FilesystemEnvelopeStore(root=chain_root) if chain_root else FilesystemEnvelopeStore()
         # Validate directory exists before iter_chain returns empty
@@ -536,7 +652,21 @@ def verify_result_from_upstream(
             installed phionyx-mcp-server via ``require_producer()``.
     """
     if provenance is None:
-        provenance = require_producer()
+        # The caller did not say who produced this verdict, so the identity
+        # is INFERRED from the local installation — which is only right if
+        # the verdict actually came from it. `from_disk` always passes the
+        # module it imported; anyone handing in a dict from elsewhere gets
+        # an inferred label that says so, rather than a confident
+        # attribution to whatever happens to be installed.
+        resolved = require_producer()
+        provenance = MeasurementProvenance(
+            component=resolved.component,
+            version=resolved.version,
+            method=(
+                "audit_chain.verify_chain(), identity inferred from the local "
+                "installation and not observed at the point of measurement"
+            ),
+        )
 
     def _tri(value: Any) -> bool | None:
         """Accept ONLY literal booleans. Everything else is NOT MEASURED.
@@ -557,18 +687,29 @@ def verify_result_from_upstream(
 
     degraded_reason: str | None = None
     if not reports_dimensions:
-        # Hash-only producer. Its `valid` is a hash-chain answer and may be
-        # read ONLY as such.
-        degraded_reason = (
-            f"producer verdict from {provenance} lacks per-dimension fields "
-            f"{list(REQUIRED_VERDICT_DIMENSION_KEYS)}; its `valid` reports a "
-            "hash-chain walk only and carries NO signature information. "
-            "Signature assurance is NOT MEASURED."
-        )
+        # A dimension-less verdict. Careful: this is NOT by itself evidence
+        # of an old producer. The pinned 0.2.1 also returns a bare
+        # {valid: False, checked, broken_at, reason} on all four of its
+        # HASH-FAILURE paths. Only a dimension-less POSITIVE is ambiguous
+        # between "hash-only walker said pass" and "full producer said
+        # pass" — and that ambiguity is exactly what must not become a
+        # signature fact.
         hash_chain_valid = (
             None if upstream_valid is None else bool(upstream_valid)
         )
         signature_by_upstream: bool | None = None
+        if upstream_valid is True:
+            degraded_reason = (
+                f"the verdict from {provenance} carried no per-dimension "
+                f"fields {list(REQUIRED_VERDICT_DIMENSION_KEYS)}, so its "
+                "`valid: true` cannot be read as a signature result — a "
+                "hash-chain walk alone produces the same answer. Signature "
+                "assurance is NOT MEASURED."
+            )
+        # valid is False / None: a hash-level failure or an absence. Both
+        # are readable as-is; emitting a degradation notice here would
+        # assert, falsely, that an in-contract producer is a legacy
+        # hash-only walker.
     else:
         if hash_chain_valid is None:
             hash_chain_valid = (
@@ -588,6 +729,13 @@ def verify_result_from_upstream(
     if degraded_reason:
         reason = f"{reason}. {degraded_reason}" if reason else degraded_reason
 
+    # Attest exactly the dimensions this verdict actually spoke to.
+    attested = set()
+    if hash_chain_valid is not None:
+        attested.add("hash_verified")
+    if signature_by_upstream is not None:
+        attested.add("signature_verified_by_upstream")
+
     return VerifyResult(
         received=received,
         hash_verified=hash_chain_valid,
@@ -598,6 +746,11 @@ def verify_result_from_upstream(
         reason=reason,
         measurement_status=verdict.get("measurement_status"),
         verified_by=provenance,
+        attested=frozenset(attested),
+        #: True when the verdict carried no dimension fields, so the
+        #: renderer can avoid asserting anything about how the producer
+        #: was invoked (e.g. "no verifier was supplied" — unobservable here).
+        dimensions_reported=reports_dimensions,
     )
 
 

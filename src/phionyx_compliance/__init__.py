@@ -23,11 +23,12 @@ def _resolve_version() -> str:
     said "0.1.0a1.dev0" while the distribution was 0.1.1). Every report
     and the CLI banner name this value as the report producer's version,
     so a drifted literal is a wrong provenance fact in an evidence
-    artefact. Read it from installed metadata; the literal below is only a
-    source-tree fallback for an uninstalled checkout.
+    artefact. Read it from installed metadata; an uninstalled source-tree
+    checkout gets the explicit "0.0.0+unknown" sentinel rather than a
+    plausible-looking number.
     """
     try:
-        from importlib.metadata import PackageNotFoundError, version
+        from importlib.metadata import version
 
         return version("phionyx-compliance")
     except Exception:
