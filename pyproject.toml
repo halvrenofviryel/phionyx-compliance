@@ -30,7 +30,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "pytest-cov>=4.0", "phionyx-mcp-server>=0.1.0"]
+# `chain` = everything needed to read and verify a real envelope chain.
+#
+# The >=0.2.1 floor is a CORRECTNESS floor, not a convenience pin.
+# phionyx-mcp-server 0.1.0's verify_chain() walks the HASH CHAIN ONLY and
+# returns {valid, checked, broken_at, reason} with no per-dimension
+# fields; its valid=True says nothing about signatures. Reading it as a
+# signature fact reports SIGNATURE assurance for a chain whose signatures
+# were never looked at. See phionyx_compliance.chain_view module header
+# and REQUIRED_MCP_SERVER_VERSION, which must stay in sync with this pin.
+chain = ["phionyx-mcp-server>=0.2.1"]
+dev = ["pytest>=7.0", "pytest-cov>=4.0", "phionyx-mcp-server>=0.2.1"]
 
 [project.urls]
 Homepage = "https://phionyx.ai"

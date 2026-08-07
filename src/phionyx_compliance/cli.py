@@ -15,7 +15,7 @@ from pathlib import Path
 from . import __version__
 from .templates import list_templates, load_template
 from .renderer import render, sample_inputs
-from .chain_view import ChainView
+from .chain_view import ChainView, IncompatibleProducerError
 from .mapping import resolve_inputs
 
 
@@ -63,6 +63,13 @@ def cmd_generate(args: argparse.Namespace) -> int:
         except FileNotFoundError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 4
+        except IncompatibleProducerError as exc:
+            # Fail loudly and closed: the producer cannot answer what a
+            # report needs. Distinct exit code so a wrong dependency
+            # version is diagnosable from CI, not confused with a missing
+            # chain or a missing package.
+            print(f"error: {exc}", file=sys.stderr)
+            return 7
         except ImportError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 5
@@ -90,7 +97,8 @@ def cmd_generate(args: argparse.Namespace) -> int:
         mode_label = (
             f"real chain render ({chain.envelope_count} envelopes, "
             f"assurance={chain.verify_result.assurance}, "
-            f"valid={chain.verify_result.valid})"
+            f"valid={chain.verify_result.valid}, "
+            f"verified_by={chain.verify_result.verified_by})"
         )
 
     markdown = render(template, inputs)

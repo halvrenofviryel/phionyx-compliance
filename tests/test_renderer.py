@@ -79,20 +79,33 @@ def test_verdict_distribution_table_format():
 
 
 def test_chain_valid_label_helpers():
-    """Legacy positional callers get the HASH-level reading, never a
-    signature-level one — nothing on that call path verified a signature."""
+    """Legacy positional callers get NO positive at all.
+
+    STRENGTHENED (WP-03). This test previously accepted HASH_VERIFIED from
+    `render_chain_valid_label(True)`. A bare boolean names no component,
+    no version and no method, so it substantiates no positive assurance
+    level — not signature, and not hash either. The legacy boolean route
+    now reads NOT_MEASURED. The negative still lands, because a negative
+    fails closed and needs no provenance.
+    """
     from phionyx_compliance.renderer import render_chain_valid_label, render_chain_integrity_summary
 
     label_ok = render_chain_valid_label(True)
-    assert label_ok == "⚠ HASH_VERIFIED only — signatures NOT verified"
+    assert label_ok == "⚠ NOT_MEASURED — no verification was performed"
+    assert "HASH_VERIFIED" not in label_ok
+    assert "SIGNATURE" not in label_ok
     assert "broken at envelope 7" in render_chain_valid_label(False, broken_at=7)
 
+    # 10 envelopes were RECEIVED, so RECORDED is the honest floor — but the
+    # boolean buys nothing above it.
     ok = render_chain_integrity_summary(envelope_count=10, valid=True, broken_at=None, reason=None)
-    assert "HASH_VERIFIED" in ok
-    # A hash-chain walk is NOT a signature check — the legacy path must
-    # not claim one.
+    assert "RECORDED" in ok
+    assert "Nothing was verified" in ok
+    assert "HASH_VERIFIED" not in ok
+    # A hash-chain walk is NOT a signature check — and a boolean is not a
+    # hash-chain walk. The legacy path must claim neither.
     assert "Ed25519 signatures verify" not in ok
-    assert "Signatures were **NOT** verified" in ok
+    assert "SIGNATURE_VERIFIED" not in ok
 
     broken = render_chain_integrity_summary(envelope_count=10, valid=False, broken_at=5, reason="hash mismatch")
     assert "INVALID" in broken

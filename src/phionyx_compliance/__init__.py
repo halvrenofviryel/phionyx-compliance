@@ -16,7 +16,25 @@ Public surface (v0.1):
 """
 from __future__ import annotations
 
-__version__ = "0.1.0a1.dev0"
+def _resolve_version() -> str:
+    """Report the INSTALLED version, not a hand-maintained literal.
+
+    A hardcoded string drifts from pyproject.toml (it did: this module
+    said "0.1.0a1.dev0" while the distribution was 0.1.1). Every report
+    and the CLI banner name this value as the report producer's version,
+    so a drifted literal is a wrong provenance fact in an evidence
+    artefact. Read it from installed metadata; the literal below is only a
+    source-tree fallback for an uninstalled checkout.
+    """
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        return version("phionyx-compliance")
+    except Exception:
+        return "0.0.0+unknown"
+
+
+__version__ = _resolve_version()
 
 
 # ── Canonical disclaimers ──────────────────────────────────────────
@@ -50,10 +68,16 @@ from .renderer import render, sample_inputs  # noqa: E402
 from .chain_view import (  # noqa: E402
     ASSURANCE_ORDER,
     ASSURANCE_RANK,
+    MAX_REACHABLE_ASSURANCE,
+    REQUIRED_MCP_SERVER_VERSION,
     REVOCATION_NOT_IMPLEMENTED,
     ChainView,
+    IncompatibleProducerError,
+    MeasurementProvenance,
+    UnprovenancedAssuranceError,
     VerifyResult,
     find_traces,
+    require_producer,
     verify_result_from_upstream,
 )
 from .mapping import resolve_inputs  # noqa: E402
@@ -69,10 +93,16 @@ __all__ = [
     "sample_inputs",
     "ChainView",
     "VerifyResult",
+    "MeasurementProvenance",
+    "IncompatibleProducerError",
+    "UnprovenancedAssuranceError",
     "find_traces",
     "resolve_inputs",
     "ASSURANCE_ORDER",
     "ASSURANCE_RANK",
+    "MAX_REACHABLE_ASSURANCE",
+    "REQUIRED_MCP_SERVER_VERSION",
     "REVOCATION_NOT_IMPLEMENTED",
+    "require_producer",
     "verify_result_from_upstream",
 ]

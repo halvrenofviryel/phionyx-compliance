@@ -1,0 +1,371 @@
+"""WP-03 — producer contract, provenance, and the dependency floor.
+
+These pin the four acceptance criteria that the P0.4 fix did not cover:
+
+  AC-1  No caller can produce HASH_VERIFIED / SIGNATURE_VERIFIED from a
+        boolean or a bare envelope list.
+  AC-2  None, missing, or unknown never rises to positive assurance.
+  AC-3  Reports name the component and version that performed the
+        verification.
+  AC-4  A wrong dependency version fails loudly at install/test — it must
+        not silently produce a wrong answer.
+
+The measured defect AC-4 exists for (reproduced 2026-08-07 against
+phionyx-mcp-server 0.1.0, which the previous `>=0.1.0` pin allowed):
+
+    upstream verdict   : {'valid': True, 'checked': 3, 'broken_at': None,
+                          'reason': None}
+    consumer assurance : SIGNATURE_VERIFIED
+    signatures present : ['FORGED-NOT-A-REAL-SIGNATURE', ...]
+    report said        : "signature verification ran and passed"
+
+0.1.0's verify_chain() walks the HASH CHAIN ONLY. Its valid=True was read
+as a signature fact, so a chain of literal forged signatures rendered a
+signature-level posture. Nothing raised, nothing warned.
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+ALL_TEMPLATES = [
+    "eu-ai-act-article-13",
+    "nist-ai-rmf-1",
+    "iso-iec-42001",
+    "owasp-agentic-ai-v1",
+]
+
+#: The exact shape phionyx-mcp-server 0.1.0 returns: no per-dimension
+#: fields, no measurement_status. Its `valid` is a hash-chain answer.
+HASH_ONLY_PRODUCER_VERDICT = {
+    "valid": True,
+    "checked": 3,
+    "broken_at": None,
+    "reason": None,
+}
+
+
+# ── AC-4: the dependency floor ─────────────────────────────────────
+
+def test_declared_floor_matches_the_code_constant():
+    """The pin in pyproject.toml and the runtime constant must not drift.
+
+    Two places declare the same fact; if they disagree, one of them is
+    lying to somebody (pip, or the operator reading the error message).
+
+    Parsed textually rather than with tomllib: this suite's CI matrix
+    includes Python 3.10, where tomllib does not exist, and a skip here
+    would leave the drift unmeasured on a third of the matrix.
+    """
+    import re
+
+    from phionyx_compliance import REQUIRED_MCP_SERVER_VERSION
+
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    text = pyproject.read_text(encoding="utf-8")
+
+    pins = re.findall(r'"(phionyx-mcp-server[^"]*)"', text)
+    expected = f"phionyx-mcp-server>={REQUIRED_MCP_SERVER_VERSION}"
+
+    assert pins, "pyproject.toml declares no phionyx-mcp-server dependency"
+    assert set(pins) == {expected}, (
+        f"pyproject.toml declares {sorted(set(pins))}, "
+        f"code requires {expected!r}"
+    )
+    # Both extras must carry it: `chain` for the feature, `dev` for the suite.
+    for extra in ("chain", "dev"):
+        block = re.search(rf"^{extra} = \[(.*?)\]", text, re.S | re.M)
+        assert block, f"pyproject.toml has no [{extra}] extra"
+        assert expected in block.group(1), f"[{extra}] does not pin {expected!r}"
+
+
+def test_installed_producer_meets_the_declared_floor():
+    """AC-4. The environment this suite runs in must satisfy the contract."""
+    from phionyx_compliance import REQUIRED_MCP_SERVER_VERSION, require_producer
+    from phionyx_compliance.chain_view import _version_tuple
+
+    provenance = require_producer()
+    assert provenance.component == "phionyx-mcp-server"
+    assert _version_tuple(provenance.version) >= _version_tuple(
+        REQUIRED_MCP_SERVER_VERSION
+    )
+
+
+@pytest.mark.parametrize("installed", ["0.1.0", "0.2.0", "0.0.1"])
+def test_below_floor_producer_is_refused_loudly(monkeypatch, installed):
+    """AC-4. Below the floor: raise. There is no degraded mode."""
+    from phionyx_compliance import IncompatibleProducerError, require_producer
+    from phionyx_compliance import chain_view
+
+    monkeypatch.setattr(chain_view, "_installed_version", lambda dist: installed)
+
+    with pytest.raises(IncompatibleProducerError) as exc:
+        require_producer()
+
+    message = str(exc.value)
+    assert installed in message, "the error must state what IS installed"
+    assert "0.2.1" in message, "the error must state what is REQUIRED"
+    assert "HASH-CHAIN-ONLY" in message, "the error must state WHY it matters"
+
+
+def test_absent_producer_is_refused_loudly(monkeypatch):
+    from phionyx_compliance import IncompatibleProducerError, require_producer
+    from phionyx_compliance import chain_view
+
+    monkeypatch.setattr(chain_view, "_installed_version", lambda dist: None)
+
+    with pytest.raises(IncompatibleProducerError) as exc:
+        require_producer()
+    assert "not installed" in str(exc.value)
+
+
+def test_from_disk_checks_the_producer_before_reading_anything(monkeypatch, tmp_path):
+    """AC-4. The gate fires BEFORE the chain is read, so a wrong version can
+    never reach the mapping code that would misread it."""
+    from phionyx_compliance import ChainView, IncompatibleProducerError
+    from phionyx_compliance import chain_view
+
+    monkeypatch.setattr(chain_view, "_installed_version", lambda dist: "0.1.0")
+
+    with pytest.raises(IncompatibleProducerError):
+        # tmp_path contains no chain at all; if the producer check did not
+        # run first this would raise FileNotFoundError instead.
+        ChainView.from_disk("trace-does-not-exist", chain_root=tmp_path)
+
+
+def test_hash_only_verdict_cannot_produce_a_signature_fact():
+    """AC-4, data-level. THE REGRESSION.
+
+    Even if a hash-only verdict somehow reaches the mapper, its valid=True
+    must not become a signature positive. This is the exact input that
+    produced SIGNATURE_VERIFIED for a forged-signature chain.
+    """
+    from phionyx_compliance import verify_result_from_upstream
+
+    r = verify_result_from_upstream(dict(HASH_ONLY_PRODUCER_VERDICT), received=3)
+
+    assert r.signature_verified is None
+    assert r.signature_verified_by_upstream is None, (
+        "a hash-only walker's valid=True is not a signature measurement"
+    )
+    assert r.assurance == "HASH_VERIFIED"
+    assert r.valid is None, "hash continuity is not overall validity"
+    # The report must SAY why the signature dimension is empty.
+    assert "lacks per-dimension fields" in (r.reason or "")
+    assert "NOT MEASURED" in (r.reason or "")
+
+
+@pytest.mark.parametrize("name", ALL_TEMPLATES)
+def test_hash_only_verdict_renders_no_signature_claim(name):
+    """AC-4 end-to-end: the degraded verdict must not render as assurance."""
+    from phionyx_compliance import (
+        ChainView,
+        load_template,
+        render,
+        resolve_inputs,
+        verify_result_from_upstream,
+    )
+
+    result = verify_result_from_upstream(
+        dict(HASH_ONLY_PRODUCER_VERDICT), received=3
+    )
+    chain = ChainView.from_envelopes("t-hash-only", [{}, {}, {}], verify_result=result)
+    t = load_template(name)
+    out = render(t, resolve_inputs(t, chain))
+
+    for phrase in (
+        "Ed25519 signatures verify",
+        "signatures verify against",
+        "every decision is signed and replayable",
+        "SIGNATURE_VERIFIED",
+    ):
+        assert phrase not in out, f"{name}: emitted {phrase!r} from a hash-only walk"
+    assert "Signatures were **NOT** verified" in out
+
+
+# ── AC-2: absence never rises ──────────────────────────────────────
+
+@pytest.mark.parametrize(
+    "verdict",
+    [
+        {},
+        {"valid": None},
+        {"valid": None, "hash_chain_valid": None, "measurement_status": "NOT_MEASURED"},
+        {"valid": "unknown", "hash_chain_valid": None, "measurement_status": "UNKNOWN"},
+        {"hash_chain_valid": None, "measurement_status": "ERROR"},
+        {"valid": None, "hash_chain_valid": None, "measurement_status": "NOT_RUN"},
+    ],
+)
+def test_absence_never_rises_to_positive_assurance(verdict):
+    """AC-2. None / missing / unknown / ERROR / NOT_RUN stay non-positive."""
+    from phionyx_compliance import ASSURANCE_RANK, verify_result_from_upstream
+
+    r = verify_result_from_upstream(dict(verdict), received=4)
+
+    assert r.valid is not True, verdict
+    assert r.signature_verified is not True, verdict
+    assert r.signature_verified_by_upstream is not True, verdict
+    assert ASSURANCE_RANK[r.assurance] < ASSURANCE_RANK["HASH_VERIFIED"], (
+        verdict,
+        r.assurance,
+    )
+
+
+def test_unknown_string_is_not_truthy_by_accident():
+    """A non-boolean truthy `valid` must not be coerced into a pass."""
+    from phionyx_compliance import verify_result_from_upstream
+
+    r = verify_result_from_upstream(
+        {"valid": "yes", "hash_chain_valid": None, "measurement_status": "UNKNOWN"},
+        received=2,
+    )
+    assert r.valid is not True
+    assert r.assurance == "RECORDED"
+
+
+def test_not_measured_survives_the_round_trip_to_the_report():
+    """AC-2 end-to-end: upstream's honest NOT_MEASURED reaches the reader."""
+    from phionyx_compliance import verify_result_from_upstream
+    from phionyx_compliance.renderer import render_chain_integrity_summary
+
+    r = verify_result_from_upstream(
+        {"valid": None, "hash_chain_valid": True, "measurement_status": "NOT_MEASURED"},
+        received=3,
+    )
+    assert r.assurance == "HASH_VERIFIED"
+    assert r.valid is None
+
+    out = render_chain_integrity_summary(result=r)
+    assert "Signatures were **NOT** verified" in out
+    assert "signature verification ran and passed" not in out
+
+
+# ── AC-3: reports name the component and version ───────────────────
+
+def _upstream_pass_result(received: int = 3):
+    from phionyx_compliance import verify_result_from_upstream
+
+    return verify_result_from_upstream(
+        {
+            "valid": True,
+            "hash_chain_valid": True,
+            "signatures_verified": True,
+            "measurement_status": "PASS",
+            "broken_at": None,
+            "reason": None,
+        },
+        received=received,
+    )
+
+
+@pytest.mark.parametrize("name", ALL_TEMPLATES)
+def test_report_names_the_verifying_component_and_version(name):
+    """AC-3. Every positive assurance statement is attributable."""
+    from importlib.metadata import version
+
+    from phionyx_compliance import ChainView, load_template, render, resolve_inputs
+
+    result = _upstream_pass_result()
+    chain = ChainView.from_envelopes("t-attr", [{}, {}, {}], verify_result=result)
+    t = load_template(name)
+    out = render(t, resolve_inputs(t, chain))
+
+    assert "phionyx-mcp-server" in out, f"{name}: no component named"
+    assert version("phionyx-mcp-server") in out, f"{name}: no version named"
+
+
+@pytest.mark.parametrize("name", ALL_TEMPLATES)
+def test_report_does_not_present_upstream_result_as_its_own(name):
+    """Requirement 4. Carried ≠ verified. The report must say which."""
+    from phionyx_compliance import ChainView, load_template, render, resolve_inputs
+
+    result = _upstream_pass_result()
+    chain = ChainView.from_envelopes("t-attr", [{}, {}, {}], verify_result=result)
+    t = load_template(name)
+    out = render(t, resolve_inputs(t, chain))
+
+    assert "SIGNATURE_VERIFIED_BY_UPSTREAM" in out
+    assert "did not verify it" in out
+    # The bare, unattributed form must never appear on this path.
+    assert "Assurance: **SIGNATURE_VERIFIED**" not in out
+
+
+def test_provenance_label_is_empty_when_nothing_measured():
+    from phionyx_compliance import VerifyResult
+
+    r = VerifyResult(received=3)
+    assert r.verified_by is None
+    assert "no component performed a verification" in r.provenance_label
+
+
+def test_positive_cannot_be_injected_by_mutating_after_construction():
+    """AC-1. The constructor gate alone is bypassable — close that too.
+
+    Measured before this fix: `r = VerifyResult(received=1)` followed by
+    `r.hash_verified = True; r.signature_verified_by_upstream = True`
+    yielded assurance=SIGNATURE_VERIFIED_BY_UPSTREAM, valid=True,
+    verified_by=None. The __post_init__ check never saw it.
+    """
+    import dataclasses
+
+    from phionyx_compliance import VerifyResult
+
+    r = VerifyResult(received=1)
+    assert r.assurance == "RECORDED"
+
+    for field_name in (
+        "hash_verified",
+        "signature_verified",
+        "signature_verified_by_upstream",
+        "schema_valid",
+        "revocation_checked",
+    ):
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            setattr(r, field_name, True)
+
+    assert r.assurance == "RECORDED"
+    assert r.valid is None
+
+
+def test_assurance_refuses_a_positive_without_provenance():
+    """AC-1/AC-3, third line of defence: the derivation itself checks.
+
+    Built via `dataclasses.replace`-style reconstruction is impossible
+    here (the constructor gate fires), so this exercises the derivation
+    directly on an object whose provenance was dropped.
+    """
+    from phionyx_compliance import MeasurementProvenance, VerifyResult
+
+    good = VerifyResult(
+        received=3,
+        hash_verified=True,
+        signature_verified_by_upstream=True,
+        verified_by=MeasurementProvenance("phionyx-mcp-server", "0.2.1"),
+    )
+    assert good.assurance == "SIGNATURE_VERIFIED_BY_UPSTREAM"
+    assert good.valid is True
+
+    # Same dimension flags, provenance removed via object.__setattr__
+    # (the only way past a frozen dataclass) — must NOT stay positive.
+    stripped = VerifyResult(
+        received=3,
+        hash_verified=True,
+        signature_verified_by_upstream=True,
+        verified_by=MeasurementProvenance("phionyx-mcp-server", "0.2.1"),
+    )
+    object.__setattr__(stripped, "verified_by", None)
+    assert stripped.assurance == "RECORDED"
+    assert stripped.valid is None
+
+
+def test_provenance_requires_component_and_version():
+    from phionyx_compliance import MeasurementProvenance
+
+    with pytest.raises(ValueError):
+        MeasurementProvenance("", "0.2.1")
+    with pytest.raises(ValueError):
+        MeasurementProvenance("phionyx-mcp-server", "")

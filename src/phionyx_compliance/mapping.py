@@ -204,6 +204,12 @@ def _resolve_derived_rule(
             "assurance": chain.verify_result.assurance,
             "hash_verified": chain.verify_result.hash_verified,
             "signature_verified": chain.verify_result.signature_verified,
+            "signature_verified_by_upstream": (
+                chain.verify_result.signature_verified_by_upstream
+            ),
+            # WHO measured. A helper that emits a positive must be able to
+            # name the component and version behind it.
+            "verified_by": chain.verify_result.provenance_label,
             "revocation_checked": chain.verify_result.revocation_checked,
             "envelope_count": chain.envelope_count,
             "hitl_count": hitl_count,

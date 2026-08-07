@@ -123,12 +123,94 @@ def test_assurance_dimensions_are_recorded_separately():
 
 
 def test_hash_verification_alone_is_not_a_positive_verdict():
-    """Hash-chain continuity is not authenticity. It must not yield valid=True."""
-    from phionyx_compliance import VerifyResult
+    """Hash-chain continuity is not authenticity. It must not yield valid=True.
 
-    r = VerifyResult(received=3, hash_verified=True, signature_verified=None)
+    STRENGTHENED (WP-03): the positive now also requires provenance, so
+    the result must name who measured it.
+    """
+    from phionyx_compliance import MeasurementProvenance, VerifyResult
+
+    r = VerifyResult(
+        received=3,
+        hash_verified=True,
+        signature_verified=None,
+        verified_by=MeasurementProvenance("phionyx-mcp-server", "0.2.1"),
+    )
     assert r.assurance == "HASH_VERIFIED"
     assert r.valid is None, "hash continuity must not be reported as overall validity"
+
+
+def test_a_positive_cannot_be_constructed_without_provenance():
+    """ACCEPTANCE 1. No caller can produce HASH_VERIFIED / SIGNATURE_VERIFIED
+    from a boolean.
+
+    The gate is at the constructor, so it holds for EVERY call route into
+    VerifyResult — there is no "other way in" to audit.
+    """
+    from phionyx_compliance import UnprovenancedAssuranceError, VerifyResult
+
+    for kwargs in (
+        {"hash_verified": True},
+        {"signature_verified": True},
+        {"signature_verified_by_upstream": True},
+        {"schema_valid": True},
+        {"hash_verified": True, "signature_verified": True},
+    ):
+        with pytest.raises(UnprovenancedAssuranceError):
+            VerifyResult(received=3, **kwargs)
+
+    # Negatives need no provenance: they fail closed and per the
+    # measurement axioms can never be lifted to a pass.
+    assert VerifyResult(received=3, hash_verified=False).assurance == "INVALID"
+    assert VerifyResult(received=3, hash_verified=False).valid is False
+
+
+def test_revocation_checked_cannot_be_asserted():
+    """Revocation is unimplemented here; no caller may flip the flag."""
+    from phionyx_compliance import UnprovenancedAssuranceError, VerifyResult
+
+    with pytest.raises(UnprovenancedAssuranceError):
+        VerifyResult(received=1, revocation_checked=True)
+
+
+def test_bare_envelope_list_cannot_reach_a_positive_by_any_route():
+    """ACCEPTANCE 1 (second half). A bare envelope list yields RECORDED, and
+    the injection attempt raises rather than silently succeeding."""
+    from phionyx_compliance import ChainView, UnprovenancedAssuranceError, VerifyResult
+
+    chain = ChainView.from_envelopes("t", _unverified_envelopes())
+    assert chain.verify_result.assurance == "RECORDED"
+    assert chain.verify_result.valid is None
+
+    with pytest.raises(UnprovenancedAssuranceError):
+        ChainView.from_envelopes(
+            "t",
+            _unverified_envelopes(),
+            verify_result=VerifyResult(
+                received=2, hash_verified=True, signature_verified=True
+            ),
+        )
+
+
+def test_renderer_boolean_routes_cannot_reach_positive_assurance():
+    """ACCEPTANCE 1 across the renderer's legacy boolean entry points."""
+    from phionyx_compliance.renderer import (
+        render_chain_integrity_summary,
+        render_chain_valid_label,
+        render_t8_repudiation_status,
+    )
+
+    label = render_chain_valid_label(valid=True)
+    assert "HASH_VERIFIED" not in label and "SIGNATURE" not in label
+
+    summary = render_chain_integrity_summary(envelope_count=5, valid=True)
+    assert "HASH_VERIFIED" not in summary
+    assert "SIGNATURE_VERIFIED" not in summary
+
+    t8 = render_t8_repudiation_status(chain_valid=True, envelope_count=5)
+    for phrase in SIGNATURE_CLAIM_PHRASES + ["signatures verified"]:
+        assert phrase not in t8, f"T8 emitted {phrase!r} from a bare boolean"
+    assert "no repudiation defence" in t8.lower()
 
 
 def test_not_measured_is_never_upgraded_to_pass():
@@ -141,6 +223,10 @@ def test_not_measured_is_never_upgraded_to_pass():
 
 
 def test_assurance_ordering_is_the_specified_one():
+    """STRENGTHENED (WP-03): SIGNATURE_VERIFIED_BY_UPSTREAM is inserted
+    strictly between HASH_VERIFIED and SIGNATURE_VERIFIED — a carried
+    third-party positive outranks a hash walk but never equals an
+    independent verification."""
     from phionyx_compliance import ASSURANCE_ORDER
 
     assert ASSURANCE_ORDER == [
@@ -148,22 +234,87 @@ def test_assurance_ordering_is_the_specified_one():
         "NOT_MEASURED",
         "RECORDED",
         "HASH_VERIFIED",
+        "SIGNATURE_VERIFIED_BY_UPSTREAM",
         "SIGNATURE_VERIFIED",
         "VERIFIED",
         "TRUSTED",
     ]
 
 
+def test_upstream_ceiling_is_the_reachable_maximum():
+    """This package runs no verifier, so an independently-verified level is
+    not reachable through any producer result."""
+    from phionyx_compliance import ASSURANCE_RANK, MAX_REACHABLE_ASSURANCE
+
+    assert MAX_REACHABLE_ASSURANCE == "SIGNATURE_VERIFIED_BY_UPSTREAM"
+    assert (
+        ASSURANCE_RANK["HASH_VERIFIED"]
+        < ASSURANCE_RANK["SIGNATURE_VERIFIED_BY_UPSTREAM"]
+        < ASSURANCE_RANK["SIGNATURE_VERIFIED"]
+    )
+
+
+def test_package_own_paths_never_exceed_the_ceiling():
+    """The ceiling is a property of the MAPPING, so exercise the mapping.
+
+    Whatever a producer returns — including a maximal, self-declared
+    TRUSTED verdict — `verify_result_from_upstream` must never emit
+    `signature_verified` (this package's own dimension) nor an assurance
+    above the ceiling.
+    """
+    from phionyx_compliance import (
+        ASSURANCE_RANK,
+        MAX_REACHABLE_ASSURANCE,
+        verify_result_from_upstream,
+    )
+
+    ceiling = ASSURANCE_RANK[MAX_REACHABLE_ASSURANCE]
+    for verdict in (
+        {"valid": True, "hash_chain_valid": True, "measurement_status": "PASS",
+         "signatures_verified": True},
+        {"valid": True, "hash_chain_valid": True, "measurement_status": "TRUSTED",
+         "assurance": "TRUSTED", "key_trusted": True, "revocation_checked": True,
+         "witness_valid": True},
+        {"valid": None, "hash_chain_valid": True,
+         "measurement_status": "NOT_MEASURED"},
+        {"valid": False, "hash_chain_valid": False,
+         "measurement_status": "FAIL", "broken_at": 0},
+    ):
+        r = verify_result_from_upstream(verdict, received=3)
+        assert r.signature_verified is None, verdict
+        assert r.verified_independently is False, verdict
+        assert r.revocation_checked is False, verdict
+        assert ASSURANCE_RANK[r.assurance] <= ceiling, (verdict, r.assurance)
+
+
 def test_verified_and_trusted_are_unreachable_here():
     """This package implements no key trust, revocation, witness or freshness
-    check, so it must never report VERIFIED or TRUSTED."""
-    from phionyx_compliance import VerifyResult
+    check, so it must never report VERIFIED or TRUSTED.
+
+    STRENGTHENED (WP-03): the strongest constructible result now also
+    requires provenance, and `verified_independently` stays False because
+    nothing in this package verified anything.
+    """
+    from phionyx_compliance import MeasurementProvenance, VerifyResult
 
     strongest = VerifyResult(
-        received=2, schema_valid=True, hash_verified=True, signature_verified=True
+        received=2,
+        schema_valid=True,
+        hash_verified=True,
+        signature_verified=True,
+        verified_by=MeasurementProvenance("some-verifier", "9.9.9"),
     )
     assert strongest.assurance == "SIGNATURE_VERIFIED"
     assert strongest.assurance not in ("VERIFIED", "TRUSTED")
+
+    carried = VerifyResult(
+        received=2,
+        hash_verified=True,
+        signature_verified_by_upstream=True,
+        verified_by=MeasurementProvenance("phionyx-mcp-server", "0.2.1"),
+    )
+    assert carried.assurance == "SIGNATURE_VERIFIED_BY_UPSTREAM"
+    assert carried.verified_independently is False
 
 
 # ── (b) report language must be derived from the result ────────────
@@ -367,8 +518,13 @@ def test_forged_signature_yields_invalid_and_a_refusing_report():
     assert verdict["hash_chain_valid"] is True, "hash layer is intact by construction"
 
     result = verify_result_from_upstream(verdict, received=len(envelopes))
-    assert result.signature_verified is False
+    # STRENGTHENED (WP-03): the failure is upstream's finding, recorded on
+    # the upstream dimension. `signature_verified` is reserved for a check
+    # THIS package ran, and it never runs one.
+    assert result.signature_verified_by_upstream is False
+    assert result.signature_verified is None
     assert result.assurance == "INVALID"
+    assert result.valid is False
 
     chain = ChainView.from_envelopes("t-forged", envelopes, verify_result=result)
     t = load_template("owasp-agentic-ai-v1")
@@ -431,16 +587,28 @@ def test_upstream_overclaim_cannot_propagate_past_signature_verified():
     }
     r = verify_result_from_upstream(overclaiming_upstream, received=3)
 
-    assert r.assurance == "SIGNATURE_VERIFIED"
-    assert r.assurance not in ("VERIFIED", "TRUSTED")
+    # STRENGTHENED (WP-03): the cap is now SIGNATURE_VERIFIED_BY_UPSTREAM,
+    # one level lower than before. The consumer ran no verifier, so even a
+    # well-formed upstream PASS cannot be reported as this report's own
+    # signature verification.
+    assert r.assurance == "SIGNATURE_VERIFIED_BY_UPSTREAM"
+    assert r.assurance not in ("SIGNATURE_VERIFIED", "VERIFIED", "TRUSTED")
+    assert r.signature_verified is None
+    assert r.verified_independently is False
     # Revocation is not implemented HERE; an upstream flag must not flip it.
     assert r.revocation_checked is False
 
 
 def test_positive_control_signature_verified_unlocks_the_claim():
     """The gate must DISCRIMINATE: when verification really ran and passed,
-    the report is allowed to state it — but still must not name an algorithm
-    it never observed, and must still declare revocation unchecked."""
+    the report is allowed to state it — attributed to whoever ran it.
+
+    STRENGTHENED (WP-03). Previously this asserted the consumer reported
+    SIGNATURE_VERIFIED, i.e. as if it had verified. It had not: the check
+    ran inside phionyx-mcp-server. The report must now say so and name the
+    component, and must still not name an algorithm it never observed nor
+    imply revocation was checked.
+    """
     from phionyx_mcp_server.audit_chain import verify_chain
 
     from phionyx_compliance import (
@@ -456,19 +624,27 @@ def test_positive_control_signature_verified_unlocks_the_claim():
     assert verdict["valid"] is True
 
     result = verify_result_from_upstream(verdict, received=len(envelopes))
-    assert result.assurance == "SIGNATURE_VERIFIED"
+    assert result.assurance == "SIGNATURE_VERIFIED_BY_UPSTREAM"
     assert result.valid is True
+    assert result.signature_verified_by_upstream is True
+    assert result.signature_verified is None
+    assert result.verified_by is not None
+    assert result.verified_by.component == "phionyx-mcp-server"
 
     chain = ChainView.from_envelopes("t-signed", envelopes, verify_result=result)
     t = load_template("owasp-agentic-ai-v1")
     out = render(t, resolve_inputs(t, chain))
 
-    assert "SIGNATURE_VERIFIED" in out
-    assert "signature verification ran and passed" in out
-    assert "signatures verified and the chain is replayable" in out
+    assert "SIGNATURE_VERIFIED_BY_UPSTREAM" in out
+    # ACCEPTANCE 3: the report names the component AND the version.
+    assert "phionyx-mcp-server" in out
+    assert result.verified_by.version in out
+    # It must not read as if THIS package verified.
+    assert "`phionyx-compliance` did not verify it" in out
+    assert "NOT independently verified" in out
     # The verifier here is a stub; naming Ed25519 would describe an unknown
     # verifier as production Ed25519 assurance.
     assert "Ed25519 signatures verify" not in out
     # Assurance still stops below VERIFIED.
     assert "key revocation is not implemented" in out.lower()
-    assert "key trust was not evaluated" in out
+    assert "key trust was not evaluated" in out.lower()
