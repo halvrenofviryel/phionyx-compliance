@@ -76,8 +76,7 @@ package is a downstream **adapter** that consumes their output:
 
 - **`phionyx-core`** (the SDK / deterministic engine, latest **v0.9.0**)
   — produces the signed audit chain this package reads. Its Reasoned Governance
-  Envelope (RGE) is a hash-chained envelope format developed alongside AIREP; a conformant projection between the two is **not implemented** (measured 2026-08-06: AIREP's own reference verifier rejects an RGE envelope handed to it directly). The first
-  system that emits them, and the format matures by conforming to it.
+  Envelope (RGE) is a hash-chained envelope format developed alongside AIREP; a conformant projection between the two is **not implemented** (measured 2026-08-06: AIREP's own reference verifier rejects an RGE envelope handed to it directly).
 - **`phionyx-pipeline-mcp`** (the self-claim gate, **v0.3.0**) — its
   self-claim gate envelopes feed the *"agent's own attestations"* section of
   every framework template, carrying the deterministic gate verdict for each
