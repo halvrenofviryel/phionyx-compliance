@@ -14,9 +14,9 @@ auditor must review before any use that implies legal posture.
 **Where this sits in the stack:** `phionyx-compliance` is a **reporting adapter**.
 It is one of several adapters that consume Phionyx envelope chains; it is not the
 deterministic engine (`phionyx-core`, the SDK), the self-governance gate
-(`phionyx-pipeline-mcp`), or the evidence-record format
-([AIREP](https://github.com/halvrenofviryel/ai-runtime-evidence-protocol)) the
-chain conforms to. See
+(`phionyx-pipeline-mcp`), or the evidence-record format the chain follows (**RGE v0.2**;
+[AIREP](https://github.com/halvrenofviryel/ai-runtime-evidence-protocol) is the
+experimental interchange format RGE is being developed toward — no conformance claim). See
 [Composition with the Phionyx stack](#composition-with-the-phionyx-stack) below.
 
 ---
@@ -74,14 +74,14 @@ summary (`--format=json`).
 Phionyx ships several distinct components, each with its own version line — this
 package is a downstream **adapter** that consumes their output:
 
-- **`phionyx-core`** (the SDK / deterministic engine, latest **v0.9.0**)
+- **`phionyx-core`** (the SDK / deterministic engine, current release on PyPI)
   — produces the signed audit chain this package reads. Its Reasoned Governance
   Envelope (RGE) is a hash-chained envelope format developed alongside AIREP; a conformant projection between the two is **not implemented** (measured 2026-08-06: AIREP's own reference verifier rejects an RGE envelope handed to it directly).
-- **`phionyx-pipeline-mcp`** (the self-claim gate, **v0.3.0**) — its
+- **`phionyx-pipeline-mcp`** (the self-claim gate, current release on PyPI) — its
   self-claim gate envelopes feed the *"agent's own attestations"* section of
   every framework template, carrying the deterministic gate verdict for each
   agent self-claim.
-- **`phionyx-mcp-server`** (the MCP trust boundary, latest **v0.2.1**) — its
+- **`phionyx-mcp-server`** (the MCP trust boundary, current release on PyPI) — its
   third-party tool-call envelopes feed the *"tool-call audit"* section, and its
   `verify_chain()` is the **only** thing that verifies anything in this
   pipeline. **`>=0.2.1` is required** (`pip install 'phionyx-compliance[chain]'`).
@@ -89,18 +89,19 @@ package is a downstream **adapter** that consumes their output:
   walks the hash chain only and reports no per-dimension result, so its
   `valid=True` carries no signature information. Below the floor this package
   refuses to run rather than report a signature posture it cannot support.
-- **`phionyx-eval`** (alpha **v0.1.0a1**) — Inspect AI `.eval` exports include the
-  same envelope chain; the compliance draft can cite the `.eval` log id as the
-  reviewer-runnable evidence pointer.
+- **`phionyx-eval-inspect`** (current release on PyPI) — exports Phionyx runtime
+  evidence into Inspect AI `.eval` logs; the compliance draft can cite the `.eval`
+  log id as the reviewer-runnable evidence pointer. (**`phionyx-eval`** is the
+  separate LLM-as-judge + importer tooling.)
 
-**Evidence-record format cross-ref:** the chains this package reads conform to
-the [**AI Runtime Evidence Protocol (AIREP)**](https://github.com/halvrenofviryel/ai-runtime-evidence-protocol)
+**Evidence-record format cross-ref:** the chains this package reads are **RGE v0.2**
+records, developed toward the [**AI Runtime Evidence Protocol (AIREP)**](https://github.com/halvrenofviryel/ai-runtime-evidence-protocol)
 — an experimental, vendor- and model-independent open format for a per-decision
 **AI decision receipt**: one signed, hash-chained, offline-checkable record per
 runtime decision, readable by anyone and tied to no vendor. Each record carries
 groups for subject, input, claim, output, evidence, directive, scope, and
-integrity (plus optional profiles), and is validated by two independent
-verifiers (Python + Node) over RFC 8785 canonical JSON. AIREP is a *proposed*
+integrity (plus optional profiles), and is validated by two cross-language
+first-party verifier implementations (Python + Node) over RFC 8785 canonical JSON. AIREP is a *proposed*
 open format, **not a ratified standard**; Phionyx's Reasoned Governance Envelope
 (RGE) is developed alongside it; a conformant projection between the two is **not implemented** (measured 2026-08-06: AIREP's own reference verifier rejects an RGE envelope handed to it directly).
 
