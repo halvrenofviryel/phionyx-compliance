@@ -76,7 +76,7 @@ package is a downstream **adapter** that consumes their output:
 
 - **`phionyx-core`** (the SDK / deterministic engine, current release on PyPI)
   — produces the signed audit chain this package reads. Its Reasoned Governance
-  Envelope (RGE) is a hash-chained envelope format developed alongside AIREP; a conformant projection between the two is **not implemented** (measured 2026-08-06: AIREP's own reference verifier rejects an RGE envelope handed to it directly).
+  Envelope (RGE) is a hash-chained envelope format developed alongside AIREP; a conformant projection between the two is **not released** — an experimental Decision-only projection is implemented, has not been independently rerun, and Control, Execution and Effect remain NOT_PROJECTABLE (the 2026-08-06 measurement that AIREP's own reference verifier rejects an RGE envelope handed to it directly is why a projection layer is required).
 - **`phionyx-pipeline-mcp`** (the self-claim gate, current release on PyPI) — its
   self-claim gate envelopes feed the *"agent's own attestations"* section of
   every framework template, carrying the deterministic gate verdict for each
@@ -103,7 +103,7 @@ groups for subject, input, claim, output, evidence, directive, scope, and
 integrity (plus optional profiles), and is validated by two cross-language
 first-party verifier implementations (Python + Node) over RFC 8785 canonical JSON. AIREP is a *proposed*
 open format, **not a ratified standard**; Phionyx's Reasoned Governance Envelope
-(RGE) is developed alongside it; a conformant projection between the two is **not implemented** (measured 2026-08-06: AIREP's own reference verifier rejects an RGE envelope handed to it directly).
+(RGE) is developed alongside it; a conformant projection between the two is **not released** — an experimental Decision-only projection is implemented, has not been independently rerun, and Control, Execution and Effect remain NOT_PROJECTABLE (the 2026-08-06 measurement that AIREP's own reference verifier rejects an RGE envelope handed to it directly is why a projection layer is required).
 
 ## Plugin command
 
