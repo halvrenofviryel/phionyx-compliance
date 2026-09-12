@@ -104,6 +104,7 @@ integrity (plus optional profiles), and is validated by two cross-language
 first-party verifier implementations (Python + Node) over RFC 8785 canonical JSON. AIREP is a *proposed*
 open format, **not a ratified standard**; Phionyx's Reasoned Governance Envelope
 (RGE) is developed alongside it; a conformant projection between the two is **not implemented** (measured 2026-08-06: AIREP's own reference verifier rejects an RGE envelope handed to it directly).
+AIREP v0.2.0-beta.1 was published on 9 September 2026 as an experimental prerelease: it ships a first-party Python producer for Decision, Control, Execution and Effect artifacts, runnable lifecycle examples and structured reconciliation; the v0.1 line remains frozen and supported. External implementation results are version- and role-specific — an independently authored producer measured against frozen v0.1.2, and an independently implemented consumer/verifier measured against an earlier v0.2 handoff — and they do not establish same-beta producer-to-consumer interoperability.
 
 ## Plugin command
 
