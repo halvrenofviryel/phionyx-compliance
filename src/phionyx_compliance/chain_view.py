@@ -715,10 +715,23 @@ def verify_result_from_upstream(
             hash_chain_valid = (
                 None if upstream_valid is None else bool(upstream_valid)
             )
+        # phionyx-mcp-server 0.2.2 reports dimensions on every path and
+        # names the signature outcome explicitly under
+        # ``assurance.signature_valid`` ("PASS" | "FAIL" | "NOT_MEASURED");
+        # on a signature failure it sets ``signatures_verified: False``
+        # (0.2.1 answered that case with ``signatures_verified: True``,
+        # meaning "a verifier ran"). Read the explicit outcome first and
+        # fall back to the 0.2.1 convention, so a forged signature is
+        # recorded as upstream's negative on either producer.
+        assurance = verdict.get("assurance")
+        assurance = assurance if isinstance(assurance, dict) else {}
+        signature_outcome = assurance.get("signature_valid")
         if upstream_valid is True:
             # Producer reports dimensions AND says a verifier passed.
             signature_by_upstream = True
-        elif upstream_valid is False and signatures_verified:
+        elif upstream_valid is False and (
+            signature_outcome == "FAIL" or signatures_verified
+        ):
             signature_by_upstream = False
         else:
             # No verifier ran, or the failure was hash-level. Either way the

@@ -264,10 +264,14 @@ def test_dimensionless_failure_does_not_slander_an_in_contract_producer():
     envelopes[2]["integrity"]["previous"] = "TAMPERED-LINK"
     verdict = verify_chain(envelopes)
 
-    # Precondition: the in-contract producer really does omit the keys here.
+    # Precondition: the producer reports a hash-level failure. The pinned
+    # 0.2.1 omits the dimension keys on this path; 0.2.2 reports them
+    # (hash_chain_valid: False, measurement_status: FAIL). The invariant
+    # under test holds for both: a hash-level failure is never turned into
+    # the "no per-dimension fields" degradation notice.
     assert verdict["valid"] is False
-    assert "hash_chain_valid" not in verdict
-    assert "measurement_status" not in verdict
+    assert verdict.get("hash_chain_valid") in (None, False)
+    assert verdict.get("measurement_status") in (None, "FAIL")
 
     r = verify_result_from_upstream(verdict, received=3)
     assert r.assurance == "INVALID"
